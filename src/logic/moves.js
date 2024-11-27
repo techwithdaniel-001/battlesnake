@@ -86,15 +86,18 @@ function getMoveResponse(gameState) {
     console.log('Health:', gameState.you.health)
     console.log('Length:', gameState.you.body.length)
     
-    // Safe board creation and printing
+    // Create board first
+    const board = createGameBoard(gameState)
+    if (!board) {
+      console.error('Failed to create game board')
+      return { move: getEmergencyMove(gameState) }
+    }
+
     try {
-      const board = createGameBoard(gameState)
-      if (board) {
-        printBoard(gameState, board)
-      }
+      printBoard(gameState, board)
     } catch (boardError) {
-      console.error('Board visualization error:', boardError)
-      // Continue with move logic even if board printing fails
+      console.error('Board printing error:', boardError)
+      // Continue even if board visualization fails
     }
     
     // Get list of safe moves
@@ -103,7 +106,6 @@ function getMoveResponse(gameState) {
     
     if (safeMoves.length === 0) {
       console.log('NO SAFE MOVES AVAILABLE!')
-      // Emergency fallback to any valid move
       return { move: getEmergencyMove(gameState) }
     }
 
@@ -171,34 +173,21 @@ function chooseSafestMove(safeMoves, gameState, board) {
     const nextPos = getNextPosition(gameState.you.head, move)
     let score = 100  // Base score
     
-    // Basic safety first
-    if (!isWithinBounds(nextPos, gameState)) {
-      return { move, score: -1000 };  // Heavily penalize out-of-bounds
-    }
-    
-    // Space evaluation (simplified)
+    // Space evaluation
     const spaceScore = evaluateAvailableSpace(nextPos, gameState, board)
-    score += spaceScore
+    score += spaceScore * 2
     
-    // Wall avoidance (stronger)
-    if (isNearWall(nextPos, gameState)) {
-      score -= 50
+    // Food evaluation
+    const foodScore = evaluateFoodPosition(nextPos, gameState)
+    if (needsFood(gameState)) {
+      score += foodScore * 2
     }
     
-    // Only add advanced scoring if basic safety is confirmed
-    if (score > 0) {
-      // Food evaluation
-      if (needsFood(gameState)) {
-        const foodScore = evaluateFoodPosition(nextPos, gameState)
-        score += foodScore
-      }
-      
-      // Trapping evaluation (only if we're safe)
-      const trapScore = evaluateTrappingOpportunities(nextPos, gameState)
-      score += trapScore
-    }
-
-    console.log(`${move}: space=${spaceScore}, total=${score}`)
+    // Trapping evaluation
+    const trapScore = evaluateTrappingOpportunities(nextPos, gameState)
+    score += trapScore
+    
+    console.log(`${move}: space=${spaceScore}, food=${foodScore}, trap=${trapScore}, total=${score}`)
     return { move, score }
   })
 
