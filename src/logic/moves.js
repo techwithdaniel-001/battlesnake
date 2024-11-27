@@ -1,5 +1,62 @@
 const PriorityQueue = require('./PriorityQueue');
 
+// Add these helper functions at the top of the file
+function willHitSnake(pos, gameState) {
+    return gameState.board.snakes.some(snake => 
+        snake.body.some(segment => 
+            segment.x === pos.x && segment.y === pos.y
+        )
+    );
+}
+
+function getValidNeighbors(pos, gameState) {
+    const neighbors = [
+        {x: pos.x, y: pos.y + 1}, // up
+        {x: pos.x, y: pos.y - 1}, // down
+        {x: pos.x - 1, y: pos.y}, // left
+        {x: pos.x + 1, y: pos.y}  // right
+    ];
+
+    return neighbors.filter(pos => 
+        isValidPosition(pos, gameState) && 
+        !willHitSnake(pos, gameState)
+    );
+}
+
+function isValidPosition(pos, gameState) {
+    return pos.x >= 0 && 
+           pos.x < gameState.board.width && 
+           pos.y >= 0 && 
+           pos.y < gameState.board.height;
+}
+
+function getQuickValidMoves(pos, gameState) {
+    return ['up', 'down', 'left', 'right']
+        .map(move => getNextPosition(pos, move))
+        .filter(pos => 
+            isValidPosition(pos, gameState) && 
+            !willHitSnake(pos, gameState)
+        );
+}
+
+function getNextPosition(pos, move) {
+    switch(move) {
+        case 'up': return {x: pos.x, y: pos.y + 1};
+        case 'down': return {x: pos.x, y: pos.y - 1};
+        case 'left': return {x: pos.x - 1, y: pos.y};
+        case 'right': return {x: pos.x + 1, y: pos.y};
+        default: return pos;
+    }
+}
+
+function getDirectionFromPositions(from, to) {
+    if (to.x > from.x) return 'right';
+    if (to.x < from.x) return 'left';
+    if (to.y > from.y) return 'up';
+    if (to.y < from.y) return 'down';
+    return 'up'; // default
+}
+
 // Utility functions
 function getNextPosition(currentPos, move) {
     switch(move.toLowerCase()) {
@@ -157,46 +214,33 @@ function isSnakeCollision(pos, gameState) {
 }
 
 // Health management constants
-const HEALTH_CRITICAL = 25;    // Critical health level
-const HEALTH_LOW = 50;         // Low health level
-const HEALTH_SAFE = 75;        // Safe health level
-
-function calculateMoveScore(spaceEval, pos, gameState) {
-    let score = 0;
-    
-    // CRITICAL: Health Management
-    const healthScore = calculateHealthScore(pos, gameState);
-    score += healthScore;
-
-    // Existing space evaluation
-    score += spaceEval.accessibleSpace * 100;
-    score -= spaceEval.deadEnds * 200;
-    score += spaceEval.escapeRoutes * 150;
-    
-    return score;
-}
+const HEALTH_THRESHOLDS = {
+    CRITICAL: 25,
+    LOW: 50,
+    SAFE: 75
+};
 
 function calculateHealthScore(pos, gameState) {
     const health = gameState.you.health;
-    let healthScore = 0;
+    let score = 0;
 
     // Find nearest food
     const nearestFood = findNearestFood(pos, gameState);
     
-    if (health <= HEALTH_CRITICAL) {
-        // CRITICAL HEALTH: Make food the absolute priority
-        healthScore = nearestFood ? (1000 - (nearestFood.distance * 50)) : -2000;
+    if (health <= HEALTH_THRESHOLDS.CRITICAL) {
+        // CRITICAL: Make food the highest priority
+        score += nearestFood ? (1000 - (nearestFood.distance * 50)) : -2000;
     } 
-    else if (health <= HEALTH_LOW) {
-        // LOW HEALTH: Strongly consider food
-        healthScore = nearestFood ? (500 - (nearestFood.distance * 30)) : -1000;
+    else if (health <= HEALTH_THRESHOLDS.LOW) {
+        // LOW: Strongly consider food
+        score += nearestFood ? (500 - (nearestFood.distance * 30)) : -1000;
     }
-    else if (health <= HEALTH_SAFE) {
-        // MODERATE HEALTH: Consider food if convenient
-        healthScore = nearestFood ? (200 - (nearestFood.distance * 10)) : 0;
+    else if (health <= HEALTH_THRESHOLDS.SAFE) {
+        // MODERATE: Consider food if convenient
+        score += nearestFood ? (200 - (nearestFood.distance * 10)) : 0;
     }
 
-    return healthScore;
+    return score;
 }
 
 function findNearestFood(pos, gameState) {
@@ -205,85 +249,134 @@ function findNearestFood(pos, gameState) {
     let nearest = null;
     let shortestDistance = Infinity;
 
-    for (const food of gameState.board.food) {
+    gameState.board.food.forEach(food => {
         const distance = Math.abs(food.x - pos.x) + Math.abs(food.y - pos.y);
         
-        // Check if path to food is safe
-        const pathToFood = findSafePathToFood(pos, food, gameState);
+        // Check if this food is in a trap
+        const isTrap = isFoodTrap(food, gameState);
         
-        if (pathToFood && distance < shortestDistance) {
+        if (distance < shortestDistance && !isTrap) {
             shortestDistance = distance;
             nearest = {
                 pos: food,
                 distance: distance,
-                path: pathToFood
+                path: findPathToFood(pos, food, gameState)
             };
         }
-    }
+    });
 
     return nearest;
 }
 
-function findSafePathToFood(start, food, gameState) {
-    const queue = [{
-        pos: start,
-        path: [start],
-        cost: 0
-    }];
+function findPathToFood(start, food, gameState) {
+    const queue = [{pos: start, path: [start]}];
     const visited = new Set();
-
+    
     while (queue.length > 0) {
         const current = queue.shift();
         const key = `${current.pos.x},${current.pos.y}`;
-
+        
+        if (visited.has(key)) continue;
+        visited.add(key);
+        
         if (current.pos.x === food.x && current.pos.y === food.y) {
             return current.path;
         }
-
-        if (visited.has(key)) continue;
-        visited.add(key);
-
-        // Get valid neighbors
-        const neighbors = getValidNeighbors(current.pos, gameState);
         
-        for (const next of neighbors) {
-            // Calculate risk for this move
-            const risk = calculateMoveRisk(next, gameState);
-            
-            if (risk < 0.8) { // Only consider relatively safe moves
+        getValidNeighbors(current.pos, gameState).forEach(next => {
+            if (!visited.has(`${next.x},${next.y}`)) {
                 queue.push({
                     pos: next,
-                    path: [...current.path, next],
-                    cost: current.cost + 1 + risk
+                    path: [...current.path, next]
                 });
             }
-        }
+        });
     }
-
-    return null; // No safe path found
+    
+    return null;
 }
 
-function calculateMoveRisk(pos, gameState) {
-    let risk = 0;
+function calculateMoveScore(pos, gameState) {
+    let score = 0;
 
-    // Check proximity to enemy snakes
+    // Get future predictions
+    const predictions = predictFutureMoves(gameState);
+    
+    // Check if move leads to predicted danger zone
+    const posKey = `${pos.x},${pos.y}`;
+    if (predictions.dangerZones.has(posKey)) {
+        score -= 500; // Heavy penalty for moving into predicted danger
+        console.log(`⚠️ Position ${posKey} is in predicted danger zone`);
+    }
+
+    // Add other scoring components
+    const spaceScore = calculateSpaceScore(pos, gameState);
+    const bodyHuggingScore = calculateBodyHuggingScore(pos, gameState);
+    const healthScore = calculateHealthScore(pos, gameState);
+    
+    score += spaceScore.score;
+    score += bodyHuggingScore;
+    score += healthScore;
+
+    // Log comprehensive scoring
+    console.log(` Move to ${posKey} scoring breakdown:
+        - Prediction Impact: ${predictions.dangerZones.has(posKey) ? -500 : 0}
+        - Space Score: ${spaceScore.score}
+        - Body Hugging: ${bodyHuggingScore}
+        - Health Factor: ${healthScore}
+        = Total: ${score}
+    `);
+
+    return score;
+}
+
+function calculateBodyHuggingScore(pos, gameState) {
+    let score = 0;
+    const SAFE_DISTANCE = 1; // One square away from snake bodies
+
     gameState.board.snakes.forEach(snake => {
         if (snake.id === gameState.you.id) return;
-        
+
+        // Check distance to snake's body (not head)
+        snake.body.slice(1).forEach(segment => {
+            const distance = Math.abs(segment.x - pos.x) + 
+                           Math.abs(segment.y - pos.y);
+            
+            // Reward being EXACTLY one square away from enemy body
+            if (distance === SAFE_DISTANCE) {
+                score += 200;  // High reward for perfect body hugging
+            } else if (distance === 0) {
+                score -= 1000; // Heavy penalty for collision
+            }
+        });
+
+        // But stay away from enemy heads!
         const headDistance = Math.abs(snake.head.x - pos.x) + 
                            Math.abs(snake.head.y - pos.y);
-        
-        // Higher risk near larger snakes
-        if (headDistance < 3) {
-            risk += snake.length >= gameState.you.length ? 0.4 : 0.2;
+        if (headDistance <= 1 && snake.length >= gameState.you.length) {
+            score -= 2000; // Very heavy penalty for potential head collision
         }
     });
 
-    // Risk increases in confined spaces
-    const spaceAvailable = quickSpaceCheck(pos, gameState);
-    if (spaceAvailable < 4) risk += 0.3;
+    return score;
+}
 
-    return risk;
+function isFoodTrap(food, gameState) {
+    const dangerRadius = 2;
+    const nearbyEnemies = gameState.board.snakes.filter(snake => 
+        snake.id !== gameState.you.id &&
+        Math.abs(snake.head.x - food.x) + Math.abs(snake.head.y - food.y) <= dangerRadius
+    );
+
+    if (nearbyEnemies.length === 0) return false;
+
+    // Check if enemies are closer to food
+    const ourDistance = Math.abs(gameState.you.head.x - food.x) + 
+                       Math.abs(gameState.you.head.y - food.y);
+    
+    return nearbyEnemies.some(enemy => 
+        Math.abs(enemy.head.x - food.x) + Math.abs(enemy.head.y - food.y) <= ourDistance
+    );
 }
 
 // Cache for path calculations to improve speed
@@ -381,506 +474,257 @@ function manhattanDistance(a, b) {
     return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 }
 
-// Optimized move response
+// Constants for different scenarios
+const SCENARIOS = {
+    CORNER_WEIGHT: -500,
+    COIL_WEIGHT: -750,
+    FOOD_TRAP_WEIGHT: -600,
+    SANDWICH_WEIGHT: -800,
+    TERRITORY_WEIGHT: 400,
+    DEAD_END_WEIGHT: -900,
+    ENDGAME_BONUS: 300
+};
+
+// Create a unique timer for each move
+let moveCounter = 0;
+
+function getValidMoves(pos, gameState) {
+    const moves = [
+        {x: pos.x, y: pos.y + 1},  // up
+        {x: pos.x, y: pos.y - 1},  // down
+        {x: pos.x - 1, y: pos.y},  // left
+        {x: pos.x + 1, y: pos.y}   // right
+    ];
+
+    // Filter valid moves
+    return moves.filter(move => {
+        // Basic validity checks
+        if (!isValidPosition(move, gameState)) return false;
+        if (willHitSnake(move, gameState)) return false;
+
+        // Check for immediate head-to-head collisions
+        const isHeadToHeadRisky = gameState.board.snakes.some(snake => {
+            if (snake.id === gameState.you.id) return false;
+            
+            const headDistance = Math.abs(snake.head.x - move.x) + 
+                               Math.abs(snake.head.y - move.y);
+            
+            return headDistance === 1 && snake.length >= gameState.you.length;
+        });
+
+        if (isHeadToHeadRisky) return false;
+
+        // Space check
+        const spaceAnalysis = analyzeAvailableSpace(move, gameState);
+        if (spaceAnalysis.accessibleSpace < 2) return false;
+
+        return true;
+    });
+}
+
+// Helper function to get move direction
+function getMoveDirection(from, to) {
+    if (to.x > from.x) return 'right';
+    if (to.x < from.x) return 'left';
+    if (to.y > from.y) return 'up';
+    if (to.y < from.y) return 'down';
+    return 'up'; // fallback
+}
+
+// Update getMoveResponse to use this
 function getMoveResponse(gameState) {
-    console.time('moveCalc');  // Performance tracking
+    const moveId = moveCounter++;
+    const timerLabel = `moveCalc_${moveId}`;
+    console.time(timerLabel);
+    
     try {
         const head = gameState.you.head;
-        const moves = getQuickValidMoves(head, gameState);
+        console.log(`\n=== MOVE ${moveId} ANALYSIS ===`);
+        console.log(`❤️ [Move ${moveId}] Health: ${gameState.you.health}`);
         
-        // Quick emergency check
-        if (moves.length === 0) {
-            console.timeEnd('moveCalc');
+        // Get valid moves first
+        const validMoves = getValidMoves(head, gameState);
+        console.log(`🎯 [Move ${moveId}] Valid moves found:`, 
+            validMoves.map(m => getMoveDirection(head, m))
+        );
+
+        // Score the valid moves
+        const scoredMoves = validMoves.map(pos => ({
+            move: getMoveDirection(head, pos),
+            scores: {
+                health: calculateHealthScore(pos, gameState),
+                space: calculateSpaceScore(pos, gameState).score,
+                bodyHugging: calculateBodyHuggingScore(pos, gameState),
+                prediction: predictFutureMoves(gameState).dangerZones.has(`${pos.x},${pos.y}`) ? -500 : 0
+            }
+        }));
+
+        // Calculate total scores and log details
+        scoredMoves.forEach(move => {
+            move.totalScore = Object.values(move.scores).reduce((a, b) => a + b, 0);
+            console.log(`📊 [Move ${moveId}] ${move.move.toUpperCase()} score breakdown:`, move.scores);
+        });
+
+        if (scoredMoves.length === 0) {
+            console.log(`⚠️ [Move ${moveId}] No valid moves found, using emergency move`);
+            console.timeEnd(timerLabel);
             return { move: findEmergencyMove(gameState) };
         }
 
-        // Score moves with simplified scoring
-        const scoredMoves = moves.map(pos => ({
-            move: getDirectionFromPositions(head, pos),
-            score: quickScoreMove(pos, gameState)
-        }));
-
-        // Sort and pick best move
-        scoredMoves.sort((a, b) => b.score - a.score);
-        console.timeEnd('moveCalc');
-        return { move: scoredMoves[0].move };
+        scoredMoves.sort((a, b) => b.totalScore - a.totalScore);
+        const bestMove = scoredMoves[0];
+        
+        console.log(`✅ [Move ${moveId}] Choosing move: ${bestMove.move} (score: ${bestMove.totalScore})`);
+        console.timeEnd(timerLabel);
+        
+        return { move: bestMove.move };
 
     } catch (error) {
-        console.error("Error in getMoveResponse:", error);
-        console.timeEnd('moveCalc');
+        console.error(`❌ [Move ${moveId}] Error:`, error);
+        console.timeEnd(timerLabel);
         return { move: findEmergencyMove(gameState) };
     }
 }
 
-// Quick move scoring
-function quickScoreMove(pos, gameState) {
-    let score = 100;
+function calculatePathScore(pos, safePaths) {
+    // Give bonus for positions that appear in safe paths
+    return safePaths.filter(path => 
+        path.some(p => p.x === pos.x && p.y === pos.y)
+    ).length * 100;
+}
 
-    // Health consideration
-    if (gameState.you.health < 50) {
-        const nearestFood = findNearestFood(pos, gameState);
-        if (nearestFood) {
-            score += (100 - nearestFood.distance * 10);
-        }
-    }
+function calculateSpaceScore(pos, gameState) {
+    const analysis = analyzeAvailableSpace(pos, gameState);
+    return {
+        score: analysis.accessibleSpace * 50 - 
+               analysis.deadEnds * 100 + 
+               analysis.escapeRoutes * 150,
+        analysis: analysis
+    };
+}
 
-    // Space evaluation (simplified)
-    const space = quickSpaceCheck(pos, gameState, 10);
-    score += space * 50;
-
-    // Enemy distance
-    const enemyDistance = getMinEnemyDistance(pos, gameState);
-    score += enemyDistance * 20;
-
+function calculateScenarioScore(pos, gameState) {
+    let score = 0;
+    
+    // Check all scenarios
+    if (detectCornerTrap(pos, gameState)) score += SCENARIOS.CORNER_WEIGHT;
+    if (detectCoilTrap(pos, gameState)) score += SCENARIOS.COIL_WEIGHT;
+    if (detectSandwichTrap(pos, gameState)) score += SCENARIOS.SANDWICH_WEIGHT;
+    
+    // Territory control
+    const territory = calculateTerritoryControl(pos, gameState);
+    if (territory.controlled) score += SCENARIOS.TERRITORY_WEIGHT;
+    
+    // Dead end detection
+    if (isDeadEnd(pos, [pos], gameState)) score += SCENARIOS.DEAD_END_WEIGHT;
+    
     return score;
 }
 
-// Quick space check with limit
-function quickSpaceCheck(pos, gameState, limit = 10) {
-    const visited = new Set();
-    const queue = [pos];
+function detectCornerTrap(pos, gameState) {
+    const isNearWall = pos.x <= 1 || pos.x >= gameState.board.width - 2 ||
+                       pos.y <= 1 || pos.y >= gameState.board.height - 2;
     
-    while (queue.length > 0 && visited.size < limit) {
-        const current = queue.shift();
-        const key = `${current.x},${current.y}`;
-        
-        if (visited.has(key)) continue;
-        visited.add(key);
-        
-        getQuickValidMoves(current, gameState)
-            .forEach(next => queue.push(next));
-    }
-    
-    return visited.size;
-}
-
-// Add these new flood-fill functions
-
-function evaluateSpaceValue(pos, gameState) {
-    const floodFillResult = floodFill(pos, gameState);
-    return {
-        accessibleSpace: floodFillResult.spaceCount,
-        deadEnds: floodFillResult.deadEnds,
-        escapeRoutes: floodFillResult.escapeRoutes,
-        nearestFood: floodFillResult.nearestFood,
-        distanceToWall: floodFillResult.distanceToWall
-    };
-}
-
-function floodFill(startPos, gameState, maxDepth = 20) {  // Add depth limit
-    const visited = new Set();
-    const queue = [{pos: startPos, depth: 0}];
-    let spaceCount = 0;
-    let deadEnds = 0;
-    let escapeRoutes = 0;
-    
-    while (queue.length > 0 && visited.size < 100) {  // Add size limit
-        const current = queue.shift();
-        const key = `${current.pos.x},${current.pos.y}`;
-        
-        if (visited.has(key) || current.depth > maxDepth) continue;
-        visited.add(key);
-        spaceCount++;
-
-        // Get valid neighbors
-        const neighbors = getValidNeighbors(current.pos, gameState);
-        
-        // Check if this is a dead end
-        if (neighbors.length === 1 && current.depth > 0) {
-            deadEnds++;
-        }
-        
-        // Check for escape routes
-        if (neighbors.length > 2) {
-            escapeRoutes++;
-        }
-        
-        // Add neighbors to queue with increased depth
-        for (const neighbor of neighbors) {
-            queue.push({pos: neighbor, depth: current.depth + 1});
-        }
-    }
-    
-    return {
-        spaceCount,
-        deadEnds,
-        escapeRoutes
-    };
-}
-
-function getValidNeighbors(pos, gameState) {
-    const neighbors = [];
-    const directions = [
-        {x: 0, y: 1},  // up
-        {x: 0, y: -1}, // down
-        {x: -1, y: 0}, // left
-        {x: 1, y: 0}   // right
-    ];
-    
-    for (const dir of directions) {
-        const neighbor = {
-            x: pos.x + dir.x,
-            y: pos.y + dir.y
-        };
-        
-        if (isValidPosition(neighbor, gameState)) {
-            neighbors.push(neighbor);
-        }
-    }
-    
-    return neighbors;
-}
-
-function isFood(pos, gameState) {
-    return gameState.board.food.some(food => 
-        food.x === pos.x && food.y === pos.y
-    );
-}
-
-function isNearWall(pos, gameState) {
-    return pos.x === 0 || 
-           pos.x === gameState.board.width - 1 || 
-           pos.y === 0 || 
-           pos.y === gameState.board.height - 1;
-}
-
-// Core Pathfinding Strategy
-function findAllSafePaths(startPos, gameState, depth = 4) {
-    const paths = [];
-    const queue = new PriorityQueue();
-    
-    queue.enqueue({
-        pos: startPos,
-        path: [startPos],
-        cost: 0,
-        turn: 0
-    }, 0);
-
-    while (!queue.isEmpty() && paths.length < 10) {
-        const current = queue.dequeue();
-        
-        // NEW: Predict enemy positions for this turn
-        const enemyPossiblePositions = predictEnemyPositions(
-            gameState, 
-            current.turn
+    if (isNearWall) {
+        const exits = getQuickValidMoves(pos, gameState);
+        const futureExits = exits.map(exit => 
+            getQuickValidMoves(exit, gameState).length
         );
-
-        // Check if current position is safe from predicted enemy moves
-        if (isPositionSafeFromPredictions(
-            current.pos, 
-            enemyPossiblePositions,
-            gameState
-        )) {
-            if (current.path.length >= depth) {
-                paths.push(current.path);
-                continue;
-            }
-
-            // Get neighbors and check against predicted enemy positions
-            const neighbors = getValidNeighbors(current.pos, gameState)
-                .filter(pos => isPositionSafeFromPredictions(
-                    pos, 
-                    enemyPossiblePositions,
-                    gameState
-                ));
-
-            for (const neighbor of neighbors) {
-                const priority = calculatePathPriority(
-                    [...current.path, neighbor], 
-                    gameState,
-                    enemyPossiblePositions
-                );
-                
-                queue.enqueue({
-                    pos: neighbor,
-                    path: [...current.path, neighbor],
-                    cost: current.cost + 1,
-                    turn: current.turn + 1
-                }, priority);
-            }
-        }
-    }
-
-    return paths;
-}
-
-function predictEnemyPositions(gameState, turnsAhead) {
-    const predictions = new Set();
-    
-    gameState.board.snakes.forEach(snake => {
-        if (snake.id === gameState.you.id) return;
-        
-        // Start with current head position
-        let possiblePositions = [snake.head];
-        
-        // Calculate possible positions for each turn
-        for (let turn = 0; turn < turnsAhead; turn++) {
-            const newPositions = [];
-            
-            possiblePositions.forEach(pos => {
-                ['up', 'down', 'left', 'right'].forEach(move => {
-                    const nextPos = getNextPosition(pos, move);
-                    if (isWithinBounds(nextPos, gameState)) {
-                        newPositions.push(nextPos);
-                        predictions.add(`${nextPos.x},${nextPos.y}`);
-                    }
-                });
-            });
-            
-            possiblePositions = newPositions;
-        }
-    });
-    
-    return predictions;
-}
-
-function isPositionSafeFromPredictions(pos, enemyPredictions, gameState) {
-    // Check if position could result in head-to-head
-    const posKey = `${pos.x},${pos.y}`;
-    if (enemyPredictions.has(posKey)) {
-        // If enemy could be here, check if it's a head-to-head risk
-        return !gameState.board.snakes.some(snake => 
-            snake.id !== gameState.you.id && 
-            snake.length >= gameState.you.length
-        );
-    }
-    return true;
-}
-
-// Path Priority Calculation
-function calculatePathPriority(path, gameState, enemyPredictions) {
-    let priority = 0;
-    const endPos = path[path.length - 1];
-
-    // CRITICAL: Check for potential boxing patterns
-    if (detectBoxingPattern(endPos, gameState)) {
-        priority -= 3000; // Extremely high penalty for potential boxing
-    }
-
-    // Check for space constriction
-    const spaceAnalysis = analyzeAvailableSpace(endPos, gameState);
-    if (spaceAnalysis.constrainedDirections >= 2) {
-        priority -= 2000; // Heavy penalty for moves that limit our movement
-    }
-
-    // CRITICAL: Heavily penalize any path that might lead to snake collision
-    const futureDangerZones = predictFutureSnakeBodies(gameState, path.length);
-    const mightHitSnake = path.some(pos => 
-        futureDangerZones.some(zone => 
-            zone.x === pos.x && zone.y === pos.y
-        )
-    );
-
-    if (mightHitSnake) {
-        priority -= 2000;  // Make this a very high penalty
-    }
-
-    // CRITICAL: Check if this path could lead to being trapped
-    const potentialTrappedSpaces = checkForPotentialTrap(path, gameState);
-    if (potentialTrappedSpaces < 3) {  // If less than 3 escape squares
-        priority -= 1000;  // Heavily penalize paths that could lead to traps
-    }
-
-    // NEW: Check if we're moving into a corner or edge
-    const isCornerOrEdge = isPositionCornerOrEdge(endPos, gameState);
-    if (isCornerOrEdge) {
-        priority -= 500;  // Significant penalty for corner/edge positions
-    }
-
-    // NEW: Check if enemy snakes could cut off our escape
-    const enemyTrapRisk = calculateEnemyTrapRisk(path, gameState);
-    priority -= enemyTrapRisk * 300;
-
-    // Existing priorities...
-    gameState.board.snakes.forEach(snake => {
-        const distanceToHead = Math.abs(endPos.x - snake.head.x) + 
-                             Math.abs(endPos.y - snake.head.y);
-        priority += Math.min(distanceToHead * 10, 50);
-    });
-
-    return -priority;
-}
-
-function checkForPotentialTrap(path, gameState) {
-    const endPos = path[path.length - 1];
-    let availableSpace = 0;
-    const visited = new Set();
-    const queue = [endPos];
-
-    // Simulate enemy snake possible moves
-    const enemyPossibleMoves = predictEnemyMoves(gameState);
-    
-    while (queue.length > 0) {
-        const current = queue.shift();
-        const key = `${current.x},${current.y}`;
-        
-        if (visited.has(key)) continue;
-        visited.add(key);
-        availableSpace++;
-
-        // Get valid neighbors that aren't potentially blocked by enemies
-        const neighbors = getValidNeighbors(current, gameState)
-            .filter(pos => !enemyPossibleMoves.some(enemy => 
-                enemy.x === pos.x && enemy.y === pos.y
-            ));
-
-        queue.push(...neighbors);
-    }
-
-    return availableSpace;
-}
-
-function predictEnemyMoves(gameState) {
-    const enemyMoves = [];
-    gameState.board.snakes.forEach(snake => {
-        if (snake.id === gameState.you.id) return;
-        
-        // Predict possible moves for this enemy
-        ['up', 'down', 'left', 'right'].forEach(move => {
-            const nextPos = getNextPosition(snake.head, move);
-            if (isWithinBounds(nextPos, gameState)) {
-                enemyMoves.push(nextPos);
-            }
-        });
-    });
-    return enemyMoves;
-}
-
-function isPositionCornerOrEdge(pos, gameState) {
-    const isEdge = pos.x === 0 || pos.x === gameState.board.width - 1 ||
-                  pos.y === 0 || pos.y === gameState.board.height - 1;
-    const isCorner = (pos.x === 0 || pos.x === gameState.board.width - 1) &&
-                    (pos.y === 0 || pos.y === gameState.board.height - 1);
-    return isEdge || isCorner;
-}
-
-function calculateEnemyTrapRisk(path, gameState) {
-    const endPos = path[path.length - 1];
-    let risk = 0;
-
-    gameState.board.snakes.forEach(snake => {
-        if (snake.id === gameState.you.id) return;
-        
-        // Calculate how many moves it would take enemy to cut off our path
-        const distanceToPath = Math.abs(snake.head.x - endPos.x) + 
-                             Math.abs(snake.head.y - endPos.y);
-        
-        if (distanceToPath <= path.length + 2) {  // If enemy can reach our path
-            risk += (path.length + 2 - distanceToPath) / path.length;
-        }
-    });
-
-    return risk;
-}
-
-function predictFutureSnakeBodies(gameState, depth) {
-    const dangerZones = new Set();
-
-    gameState.board.snakes.forEach(snake => {
-        // Mark ALL current snake body and tail parts as dangerous
-        snake.body.forEach(segment => {
-            dangerZones.add(`${segment.x},${segment.y}`);
-        });
-
-        // Predict where snake bodies and tails could be in future moves
-        let possibleHeads = [snake.head];
-        for (let i = 0; i < depth; i++) {
-            possibleHeads.forEach(head => {
-                ['up', 'down', 'left', 'right'].forEach(move => {
-                    const nextPos = getNextPosition(head, move);
-                    dangerZones.add(`${nextPos.x},${nextPos.y}`);
-                });
-            });
-        }
-    });
-
-    return Array.from(dangerZones).map(str => {
-        const [x, y] = str.split(',');
-        return { x: parseInt(x), y: parseInt(y) };
-    });
-}
-
-function detectBoxingPattern(pos, gameState) {
-    // Check for potential boxing patterns in all directions
-    const boxPatterns = [
-        // Check L-shaped traps
-        [{x: 1, y: 0}, {x: 1, y: 1}, {x: 0, y: 1}],  // ⌝
-        [{x: -1, y: 0}, {x: -1, y: 1}, {x: 0, y: 1}], // ⌜
-        [{x: 1, y: 0}, {x: 1, y: -1}, {x: 0, y: -1}], // ⌟
-        [{x: -1, y: 0}, {x: -1, y: -1}, {x: 0, y: -1}] // ⌞
-    ];
-
-    // Check if any enemy snake could form these patterns
-    for (const snake of gameState.board.snakes) {
-        if (snake.id === gameState.you.id) continue;
-
-        for (const pattern of boxPatterns) {
-            const potentialTrap = pattern.every(offset => {
-                const checkPos = {
-                    x: pos.x + offset.x,
-                    y: pos.y + offset.y
-                };
-                // Check if enemy snake could reach this position
-                return couldSnakeReachPosition(snake, checkPos, gameState);
-            });
-
-            if (potentialTrap) {
-                return true; // Position could be boxed in
-            }
-        }
+        return Math.max(...futureExits, 0) <= 2;
     }
     return false;
 }
 
-function couldSnakeReachPosition(snake, pos, gameState, moves = 2) {
-    // Check if snake could reach this position within given moves
-    const queue = [{pos: snake.head, moves: moves}];
-    const visited = new Set();
+function detectCoilTrap(pos, gameState) {
+    const directions = [[-1,0], [1,0], [0,-1], [0,1], [-1,-1], [-1,1], [1,-1], [1,1]];
+    let enemyBodyCount = 0;
 
-    while (queue.length > 0) {
-        const current = queue.shift();
-        const key = `${current.pos.x},${current.pos.y}`;
-
-        if (current.pos.x === pos.x && current.pos.y === pos.y) {
-            return true;
-        }
-
-        if (current.moves === 0 || visited.has(key)) continue;
-        visited.add(key);
-
-        // Check all possible moves
-        ['up', 'down', 'left', 'right'].forEach(move => {
-            const nextPos = getNextPosition(current.pos, move);
-            if (isWithinBounds(nextPos, gameState)) {
-                queue.push({
-                    pos: nextPos,
-                    moves: current.moves - 1
-                });
-            }
-        });
-    }
-    return false;
-}
-
-function analyzeAvailableSpace(pos, gameState) {
-    const directions = ['up', 'down', 'left', 'right'];
-    let constrainedDirections = 0;
-    let openDirections = [];
-
-    directions.forEach(dir => {
-        const nextPos = getNextPosition(pos, dir);
-        if (!isValidPosition(nextPos, gameState)) {
-            constrainedDirections++;
-        } else {
-            openDirections.push(dir);
+    directions.forEach(([dx, dy]) => {
+        const checkPos = {x: pos.x + dx, y: pos.y + dy};
+        if (isEnemySnakeBody(checkPos, gameState)) {
+            enemyBodyCount++;
         }
     });
 
+    return enemyBodyCount >= 5;
+}
+
+function isFoodTrap(food, gameState) {
+    const dangerRadius = 2;
+    const nearbyEnemies = gameState.board.snakes.filter(snake => 
+        snake.id !== gameState.you.id &&
+        Math.abs(snake.head.x - food.x) + Math.abs(snake.head.y - food.y) <= dangerRadius
+    );
+
+    if (nearbyEnemies.length === 0) return false;
+
+    // Check if enemies are closer to food
+    const ourDistance = Math.abs(gameState.you.head.x - food.x) + 
+                       Math.abs(gameState.you.head.y - food.y);
+    
+    return nearbyEnemies.some(enemy => 
+        Math.abs(enemy.head.x - food.x) + Math.abs(enemy.head.y - food.y) <= ourDistance
+    );
+}
+
+function calculateTerritoryControl(pos, gameState) {
+    const ourTerritory = floodFillTerritory(pos, gameState, 10);
+    const enemyTerritories = gameState.board.snakes
+        .filter(s => s.id !== gameState.you.id)
+        .map(s => floodFillTerritory(s.head, gameState, 10));
+
     return {
-        constrainedDirections,
-        openDirections,
-        isSafe: constrainedDirections < 2
+        controlled: ourTerritory > Math.max(...enemyTerritories, 0),
+        size: ourTerritory
     };
+}
+
+function detectSandwichTrap(pos, gameState) {
+    const vertical = [-1, 1].every(dy => {
+        const checkPos = {x: pos.x, y: pos.y + dy};
+        return !isValidPosition(checkPos, gameState) || 
+               isEnemySnakeBody(checkPos, gameState);
+    });
+
+    const horizontal = [-1, 1].every(dx => {
+        const checkPos = {x: pos.x + dx, y: pos.y};
+        return !isValidPosition(checkPos, gameState) || 
+               isEnemySnakeBody(checkPos, gameState);
+    });
+
+    return vertical || horizontal;
+}
+
+function isDeadEnd(pos, path, gameState, depth = 3) {
+    if (depth === 0) return false;
+
+    const moves = getQuickValidMoves(pos, gameState)
+        .filter(move => !path.some(p => p.x === move.x && p.y === move.y));
+
+    if (moves.length === 0) return true;
+    if (moves.length > 1) return false;
+
+    return isDeadEnd(moves[0], [...path, moves[0]], gameState, depth - 1);
+}
+
+function handleEndgame(gameState) {
+    const head = gameState.you.head;
+    const enemy = gameState.board.snakes.find(s => s.id !== gameState.you.id);
+
+    if (!enemy) {
+        // We're the only snake left
+        return findSafestMove(gameState);
+    }
+
+    // In 1v1, try to cut off the enemy
+    const moves = getValidMoves(head, gameState);
+    const scoredMoves = moves.map(pos => ({
+        move: getDirectionFromPositions(head, pos),
+        score: calculateEndgameScore(pos, enemy, gameState)
+    }));
+
+    scoredMoves.sort((a, b) => b.score - a.score);
+    return { move: scoredMoves[0].move };
 }
 
 // New helper functions
@@ -930,6 +774,99 @@ function checkHeadToHeadRisk(pos, gameState) {
         }
     });
     return risk;
+}
+
+function detectCornerTrap(pos, gameState) {
+    // Check if we're being forced into a corner
+    const isNearWall = pos.x <= 1 || pos.x >= gameState.board.width - 2 ||
+                       pos.y <= 1 || pos.y >= gameState.board.height - 2;
+    
+    if (isNearWall) {
+        const availableExits = getQuickValidMoves(pos, gameState).length;
+        if (availableExits <= 2) {
+            return true; // Potential corner trap
+        }
+    }
+    return false;
+}
+
+function analyzeAvailableSpace(pos, gameState, maxDepth = 10) {
+    const visited = new Set();
+    const queue = [{pos: pos, depth: 0}];
+    let accessibleSpace = 0;
+    let deadEnds = 0;
+    let escapeRoutes = 0;
+
+    while (queue.length > 0 && visited.size < maxDepth) {
+        const current = queue.shift();
+        const key = `${current.pos.x},${current.pos.y}`;
+
+        if (visited.has(key) || current.depth >= maxDepth) continue;
+        visited.add(key);
+        accessibleSpace++;
+
+        // Get valid neighbors
+        const neighbors = getValidNeighbors(current.pos, gameState);
+
+        // Check for dead ends
+        if (neighbors.length === 1 && current.depth > 0) {
+            deadEnds++;
+        }
+
+        // Check for escape routes
+        if (neighbors.length > 2) {
+            escapeRoutes++;
+        }
+
+        // Add neighbors to queue
+        neighbors.forEach(neighbor => {
+            if (!visited.has(`${neighbor.x},${neighbor.y}`)) {
+                queue.push({
+                    pos: neighbor,
+                    depth: current.depth + 1
+                });
+            }
+        });
+    }
+
+    return {
+        accessibleSpace,
+        deadEnds,
+        escapeRoutes,
+        floodFillSize: visited.size
+    };
+}
+
+function predictFutureMoves(gameState, depth = 3) {
+    console.log("🔮 Starting future prediction...");
+    
+    const predictions = {
+        snakes: new Map(),
+        dangerZones: new Set(),
+        safeMoves: []
+    };
+
+    // Predict each snake's possible moves
+    gameState.board.snakes.forEach(snake => {
+        if (snake.id === gameState.you.id) return;
+        
+        let possiblePositions = [snake.head];
+        for (let turn = 0; turn < depth; turn++) {
+            const newPositions = [];
+            possiblePositions.forEach(pos => {
+                getValidNeighbors(pos, gameState).forEach(newPos => {
+                    newPositions.push(newPos);
+                    predictions.dangerZones.add(`${newPos.x},${newPos.y}`);
+                });
+            });
+            possiblePositions = newPositions;
+        }
+        predictions.snakes.set(snake.id, possiblePositions);
+    });
+
+    // Log prediction results
+    console.log(`🔍 Predicted ${predictions.dangerZones.size} danger zones`);
+    return predictions;
 }
 
 // Export after all functions are defined
