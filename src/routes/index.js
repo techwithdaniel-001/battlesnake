@@ -18,8 +18,12 @@ function handleStart(req, res) {
 
 function handleMove(req, res) {
   const gameState = req.body
+  console.log('Turn:', gameState.turn)
+  console.log('Health:', gameState.you.health)
+  
   const move = getMoveResponse(gameState)
-  console.log(`Moving ${move}...`)
+  
+  console.log('Chosen move:', move)
   res.json({ move })
 }
 

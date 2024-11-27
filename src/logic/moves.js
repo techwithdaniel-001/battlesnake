@@ -9,10 +9,13 @@ function getMoveResponse(gameState) {
     score: evaluateMove(gameState, getNextPosition(gameState.you.body[0], move))
   }))
 
-  // Sort by score
-  scoredMoves.sort((a, b) => b.score - a.score)
+  // Add some debugging
+  console.log('Scored moves:', scoredMoves)
 
-  // Choose the highest scoring move
+  // Sort by score and pick best move
+  scoredMoves.sort((a, b) => b.score - a.score)
+  
+  console.log('Choosing move:', scoredMoves[0].move)
   return scoredMoves[0].move
 }
 
