@@ -8,7 +8,23 @@
   ],
   "routes": [
     {
-      "src": "/(.*)",
+      "src": "/",
+      "methods": ["GET"],
+      "dest": "app.js"
+    },
+    {
+      "src": "/start",
+      "methods": ["POST"],
+      "dest": "app.js"
+    },
+    {
+      "src": "/move",
+      "methods": ["POST"],
+      "dest": "app.js"
+    },
+    {
+      "src": "/end",
+      "methods": ["POST"],
       "dest": "app.js"
     }
   ]
