@@ -11,18 +11,57 @@ const STRATEGIES = {
     // Collision Detection System
     COLLISION: {
         checkAll: function(pos, gameState) {
+            // First check walls
             if (!this.isValidPosition(pos, gameState)) {
+                console.log("🧱 Wall collision detected at:", pos);
                 return { safe: false, reason: 'wall' };
             }
 
-            const bodyCheck = this.checkSnakeCollision(pos, gameState);
-            if (bodyCheck.willCollide) {
-                return { safe: false, reason: bodyCheck.collisionType };
+            // ENHANCED SELF-COLLISION CHECK
+            const mySnake = gameState.you;
+            for (let i = 0; i < mySnake.body.length - 1; i++) {  // -1 to ignore tail
+                const segment = mySnake.body[i];
+                if (pos.x === segment.x && pos.y === segment.y) {
+                    console.log("🚫 Self collision detected at:", segment);
+                    return { safe: false, reason: 'self' };
+                }
             }
 
-            const headCheck = this.checkHeadCollision(pos, gameState);
-            if (headCheck.dangerous) {
-                return { safe: false, reason: 'head' };
+            // Check ALL snake bodies (including enemy snakes)
+            for (const snake of gameState.board.snakes) {
+                // Log snake positions for debugging
+                console.log(`Checking snake ${snake.id} at:`, snake.body);
+                
+                // Check ENTIRE body of each snake
+                for (const segment of snake.body) {
+                    if (pos.x === segment.x && pos.y === segment.y) {
+                        console.log("🐍 Snake body collision detected at:", segment);
+                        return { 
+                            safe: false, 
+                            reason: snake.id === gameState.you.id ? 'self' : 'enemy',
+                            snake: snake
+                        };
+                    }
+                }
+
+                // Special check for vertical snake segments
+                for (let i = 1; i < snake.body.length; i++) {
+                    const prev = snake.body[i-1];
+                    const curr = snake.body[i];
+                    
+                    // If snake segment is vertical
+                    if (prev.x === curr.x && 
+                        pos.x === prev.x && 
+                        pos.y >= Math.min(prev.y, curr.y) && 
+                        pos.y <= Math.max(prev.y, curr.y)) {
+                        console.log("🚫 Vertical snake segment detected!");
+                        return { 
+                            safe: false, 
+                            reason: 'vertical_snake',
+                            snake: snake
+                        };
+                    }
+                }
             }
 
             return { safe: true, reason: null };
@@ -93,39 +132,67 @@ const STRATEGIES = {
         },
 
         calculateScore: function(pos, gameState) {
-            const health = gameState.you.health;
-            let score = 0;
-
-            const nearestFood = this.findNearestFood(pos, gameState);
+            const LOW_HEALTH_THRESHOLD = 40;
+            const CRITICAL_HEALTH = 25;
             
-            if (health <= this.THRESHOLDS.CRITICAL) {
-                score += nearestFood ? (1000 - (nearestFood.distance * 50)) : -2000;
-            } 
-            else if (health <= this.THRESHOLDS.LOW) {
-                score += nearestFood ? (500 - (nearestFood.distance * 30)) : -1000;
+            console.log(`🫀 Current health: ${gameState.you.health}`);
+            
+            // Find nearest food with safe path
+            const nearestFood = this.findNearestFood(pos, gameState);
+            if (!nearestFood) {
+                console.log("❌ No safe path to food found");
+                return 0;
             }
-            else if (health <= this.THRESHOLDS.SAFE) {
-                score += nearestFood ? (200 - (nearestFood.distance * 10)) : 0;
+            
+            let foodScore = 0;
+            
+            // Only be aggressive about food if:
+            // 1. Health is low AND
+            // 2. Food is nearby AND
+            // 3. Path is safe
+            if (gameState.you.health <= CRITICAL_HEALTH && nearestFood.distance <= 3) {
+                foodScore = 800 - (nearestFood.distance * 50);
+                console.log(`🚨 Critical health & close food! Score: ${foodScore}`);
+            } 
+            else if (gameState.you.health <= LOW_HEALTH_THRESHOLD && nearestFood.distance <= 5) {
+                foodScore = 400 - (nearestFood.distance * 30);
+                console.log(`⚠️ Low health & reachable food! Score: ${foodScore}`);
+            }
+            else {
+                // Normal food seeking - don't be too aggressive
+                foodScore = 100 - (nearestFood.distance * 10);
             }
 
-            return score;
+            return Math.max(0, foodScore);
         },
 
         findNearestFood: function(pos, gameState) {
-            if (!gameState.board.food.length) return null;
+            if (!gameState.board.food?.length) return null;
 
             let nearest = null;
-            let minDistance = Infinity;
+            let shortestDistance = Infinity;
 
-            gameState.board.food.forEach(food => {
-                const distance = Math.abs(food.x - pos.x) + 
-                               Math.abs(food.y - pos.y);
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    nearest = { food, distance };
+            for (const food of gameState.board.food) {
+                // Check if path to food is safe
+                const path = STRATEGIES.PATHFINDING.findPath(pos, food, gameState);
+                if (!path) {
+                    console.log(`🚫 No safe path to food at ${JSON.stringify(food)}`);
+                    continue;
                 }
-            });
+                
+                // Manhattan distance
+                const distance = Math.abs(food.x - pos.x) + Math.abs(food.y - pos.y);
+                
+                // Check if this path is safer than current best
+                if (distance < shortestDistance) {
+                    shortestDistance = distance;
+                    nearest = { food, distance, path };
+                }
+            }
 
+            if (nearest) {
+                console.log(`✅ Found safe food at: ${JSON.stringify(nearest.food)}, distance: ${nearest.distance}`);
+            }
             return nearest;
         }
     },
@@ -333,47 +400,34 @@ const STRATEGIES = {
 
     // Combine all strategies for move scoring
     calculateTotalScore: function(pos, gameState) {
-        console.log("\nCalculating total score for position:", pos);
-        let totalScore = 0;
+        let scores = {
+            // Base survival is most important
+            survival: STRATEGIES.ORIGINAL.willHitSnake(pos, gameState) ? 0 : 1000,
+            
+            // Space analysis next
+            space: STRATEGIES.SPACE.calculateScore(pos, gameState),
+            
+            // Body hugging for tactical advantage
+            bodyHugging: STRATEGIES.BODY_HUGGING.calculateScore(pos, gameState),
+            
+            // Health management last
+            health: STRATEGIES.HEALTH.calculateScore(pos, gameState)
+        };
 
-        try {
-            // Original strategies
-            console.log("Checking collision...");
-            if (!this.ORIGINAL.willHitSnake(pos, gameState)) {
-                totalScore += 100;
-                console.log("No collision: +100");
+        console.log(`\n💯 Position ${JSON.stringify(pos)} scores:`, scores);
+
+        // Only boost health score if really necessary
+        if (gameState.you.health <= 25) {
+            const nearestFood = STRATEGIES.HEALTH.findNearestFood(pos, gameState);
+            if (nearestFood && nearestFood.distance <= 3) {
+                scores.health *= 2;
+                console.log(`🚨 Boosting close food score to: ${scores.health}`);
             }
-
-            // Body hugging
-            console.log("Calculating body hugging...");
-            const huggingScore = this.BODY_HUGGING.calculateScore(pos, gameState);
-            totalScore += huggingScore;
-            console.log(`Body hugging score: +${huggingScore}`);
-
-            // Health management
-            console.log("Calculating health strategy...");
-            if (gameState.you.health < 50) {
-                const nearestFood = this.HEALTH.findNearestFood(pos, gameState);
-                if (nearestFood) {
-                    const foodScore = Math.max(0, 200 - (nearestFood.distance * 10));
-                    totalScore += foodScore;
-                    console.log(`Food proximity score: +${foodScore}`);
-                }
-            }
-
-            // Space analysis
-            console.log("Calculating space score...");
-            const spaceScore = this.SPACE.calculateScore(pos, gameState);
-            totalScore += spaceScore;
-            console.log(`Space score: +${spaceScore}`);
-
-            console.log(`Final total score: ${totalScore}`);
-            return totalScore;
-
-        } catch (error) {
-            console.error("Error in calculateTotalScore:", error);
-            throw error;
         }
+
+        const totalScore = Object.values(scores).reduce((a, b) => a + b, 0);
+        console.log(`📊 Total score: ${totalScore}`);
+        return totalScore;
     }
 };
 
