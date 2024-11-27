@@ -3,38 +3,77 @@ const { CELL, createGameBoard, printBoard } = require('../utils/board')
 
 function getMoveResponse(gameState) {
   try {
+    console.log('\n=== MOVE DEBUG ===')
+    console.log('Head position:', gameState.you.head)
+    console.log('Board size:', gameState.board.width, 'x', gameState.board.height)
+
     const board = createGameBoard(gameState)
+    
+    // Get SAFE moves first
     let safeMoves = getPossibleMoves(gameState, board)
+    console.log('Available safe moves:', safeMoves)
 
-    // If no safe moves, try emergency moves
+    // CRITICAL: If no safe moves, try emergency moves
     if (safeMoves.length === 0) {
-      return getLastResortMove(gameState, board)
+      console.log('WARNING: No safe moves available!')
+      const emergency = getLastResortMove(gameState, board)
+      console.log('Emergency move:', emergency)
+      return emergency
     }
 
-    // Priority 1: Avoid larger snakes
-    const movesAwayFromBiggerSnakes = avoidLargerSnakes(gameState, board, safeMoves)
-    if (movesAwayFromBiggerSnakes.length > 0) {
-      safeMoves = movesAwayFromBiggerSnakes
-    }
+    // Choose the safest move
+    const move = chooseSafestMove(safeMoves, gameState, board)
+    console.log('Chosen move:', move)
+    return move
 
-    // Priority 2: If health is low, find food
-    if (gameState.you.health < 50) {
-      const moveTowardFood = findFoodMove(gameState, board, safeMoves)
-      if (moveTowardFood) return moveTowardFood
-    }
-
-    // Priority 3: If safe, chase tail
-    if (gameState.you.health > 50) {
-      const tailMove = moveTowardTail(gameState, board, safeMoves)
-      if (tailMove) return tailMove
-    }
-
-    // Default: Choose safest move
-    return chooseSafestMove(safeMoves, gameState, board)
   } catch (error) {
-    console.error('ERROR in getMoveResponse:', error)
-    return findEmergencyMove(gameState)
+    console.error('MOVE ERROR:', error)
+    // Emergency fallback - avoid walls
+    const head = gameState.you.head
+    if (head.x === 0) return 'right'
+    if (head.x === gameState.board.width - 1) return 'left'
+    if (head.y === 0) return 'up'
+    if (head.y === gameState.board.height - 1) return 'down'
+    return 'right'
   }
+}
+
+function getPossibleMoves(gameState, board) {
+  const head = gameState.you.head
+  const possibleMoves = []
+
+  // Check each direction for safety
+  const moves = [
+    { dir: 'up', x: head.x, y: head.y + 1 },
+    { dir: 'down', x: head.x, y: head.y - 1 },
+    { dir: 'left', x: head.x - 1, y: head.y },
+    { dir: 'right', x: head.x + 1, y: head.y }
+  ]
+
+  moves.forEach(move => {
+    if (isSafeMove({ x: move.x, y: move.y }, gameState, board)) {
+      possibleMoves.push(move.dir)
+    }
+  })
+
+  console.log('Checking moves from position:', head)
+  console.log('Safe moves found:', possibleMoves)
+  return possibleMoves
+}
+
+function isSafeMove(pos, gameState, board) {
+  // Check bounds FIRST
+  if (pos.x < 0 || pos.x >= gameState.board.width) {
+    console.log(`Position ${JSON.stringify(pos)} is out of bounds`)
+    return false
+  }
+  if (pos.y < 0 || pos.y >= gameState.board.height) {
+    console.log(`Position ${JSON.stringify(pos)} is out of bounds`)
+    return false
+  }
+
+  const cell = board[pos.y][pos.x]
+  return cell === CELL.EMPTY || cell === CELL.FOOD
 }
 
 function avoidLargerSnakes(gameState, board, safeMoves) {
@@ -108,48 +147,6 @@ function findOpenSpace(gameState, board, safeMoves) {
 
   moveScores.sort((a, b) => b.score - a.score)
   return moveScores[0]?.move
-}
-
-// Update isSafeMove to consider snake sizes
-function isSafeMove(pos, gameState, board) {
-  // Check bounds
-  if (pos.x < 0 || pos.x >= gameState.board.width) return false
-  if (pos.y < 0 || pos.y >= gameState.board.height) return false
-
-  const cell = board[pos.y][pos.x]
-  
-  // Never hit yourself
-  if (cell === CELL.MY_BODY) return false
-  
-  // Check for enemy snake heads
-  if (cell === CELL.ENEMY_HEAD) {
-    const myLength = gameState.you.body.length
-    const enemySnake = gameState.board.snakes.find(
-      snake => snake.id !== gameState.you.id && 
-      snake.head.x === pos.x && 
-      snake.head.y === pos.y
-    )
-    // Only safe if we're longer than the enemy
-    return enemySnake && myLength > enemySnake.body.length
-  }
-
-  // Safe if empty or food
-  return cell === CELL.EMPTY || cell === CELL.FOOD
-}
-
-function getPossibleMoves(gameState, board) {
-  const head = gameState.you.head
-  const possibleMoves = []
-
-  // Check each direction
-  Object.values(DIRECTIONS).forEach(direction => {
-    const nextPos = getNextPosition(head, direction)
-    if (isSafeMove(nextPos, gameState, board)) {
-      possibleMoves.push(direction)
-    }
-  })
-
-  return possibleMoves
 }
 
 function findFoodMove(gameState, board, safeMoves) {
