@@ -2,6 +2,7 @@ const express = require('express')
 const routes = require('./src/routes/index.js')
 
 const app = express()
+const port = process.env.PORT || 8080
 
 // Middleware
 app.use(express.json())
@@ -26,5 +27,10 @@ app.get('/', routes.handleIndex)
 app.post('/start', routes.handleStart)
 app.post('/move', routes.handleMove)
 app.post('/end', routes.handleEnd)
+
+// Add this section to start the server
+app.listen(port, () => {
+  console.log(`🐍 Battlesnake Server listening at http://localhost:${port}`)
+})
 
 module.exports = app
