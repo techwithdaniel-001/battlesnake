@@ -12,6 +12,9 @@ const CELL = {
   DANGER: 7
 }
 
+// Add at the top with other constants
+const HEALTH_THRESHOLD = 50
+
 // Index handler
 function handleIndex(req, res) {
   const battlesnakeInfo = {

@@ -12,288 +12,177 @@ const CELL = {
   DANGER: 7
 }
 
-// Health threshold for food pursuit
-const HEALTH_THRESHOLD = 50
-
 function getMoveResponse(gameState) {
   try {
+    console.log('\n=== Processing Move ===')
+    console.log('Turn:', gameState.turn)
+    console.log('Health:', gameState.you.health)
+    console.log('Head Position:', gameState.you.head)
+
     const board = createGameBoard(gameState)
-    console.log('\nCurrent Board:')
     printBoard(board)
 
-    // Decide whether to pursue food
-    const shouldPursueFood = gameState.you.health < HEALTH_THRESHOLD
-    console.log(`Health: ${gameState.you.health}, Pursuing food: ${shouldPursueFood}`)
+    // Get all possible safe moves
+    const safeMoves = getPossibleMoves(gameState, board)
+    console.log('Safe moves:', safeMoves)
 
-    let bestMove
-    if (shouldPursueFood) {
-      // Find path to nearest food
-      const foodPath = findPathToNearestFood(gameState, board)
-      if (foodPath && foodPath.length > 0) {
-        bestMove = getDirectionFromPath(gameState.you.head, foodPath[0])
-        console.log('Food path found, moving:', bestMove)
+    // If no safe moves, try any valid move
+    if (safeMoves.length === 0) {
+      console.log('NO SAFE MOVES AVAILABLE!')
+      const lastResortMove = getLastResortMove(gameState, board)
+      console.log('Last resort move:', lastResortMove)
+      return lastResortMove
+    }
+
+    // If health is low, try to find food
+    if (gameState.you.health < 50) {
+      console.log('Health is low, looking for food')
+      const moveTowardFood = findFoodMove(gameState, board, safeMoves)
+      if (moveTowardFood) {
+        console.log('Moving toward food:', moveTowardFood)
+        return moveTowardFood
       }
     }
 
-    // If no food path or not pursuing food, find safest move
-    if (!bestMove) {
-      const safeMoves = calculateSafeMoves(gameState, board)
-      bestMove = chooseBestMove(safeMoves)
-      console.log('Using safe move:', bestMove)
-    }
-
-    return bestMove || 'right'
+    // Otherwise, choose the safest move
+    const bestMove = chooseSafestMove(safeMoves, gameState, board)
+    console.log('Chosen safe move:', bestMove)
+    return bestMove
   } catch (error) {
-    console.error('Move error:', error)
-    return 'right'
+    console.error('ERROR in getMoveResponse:', error)
+    return findEmergencyMove(gameState)
   }
 }
 
-function findPathToNearestFood(gameState, board) {
-  const start = gameState.you.head
-  const foods = gameState.board.food
-
-  // Find closest food using A*
-  let shortestPath = null
-  let shortestDistance = Infinity
-
-  foods.forEach(food => {
-    const path = aStarSearch(start, food, gameState, board)
-    if (path && path.length < shortestDistance) {
-      shortestPath = path
-      shortestDistance = path.length
-    }
-  })
-
-  return shortestPath
-}
-
-function aStarSearch(start, goal, gameState, board) {
-  const openSet = new Set([JSON.stringify(start)])
-  const cameFrom = new Map()
-  
-  const gScore = new Map()
-  gScore.set(JSON.stringify(start), 0)
-  
-  const fScore = new Map()
-  fScore.set(JSON.stringify(start), heuristic(start, goal))
-
-  while (openSet.size > 0) {
-    // Find node with lowest fScore
-    let current = null
-    let lowestFScore = Infinity
-    
-    openSet.forEach(pos => {
-      const score = fScore.get(pos) || Infinity
-      if (score < lowestFScore) {
-        lowestFScore = score
-        current = pos
-      }
-    })
-
-    const currentPos = JSON.parse(current)
-    
-    // Check if reached goal
-    if (currentPos.x === goal.x && currentPos.y === goal.y) {
-      return reconstructPath(cameFrom, current)
-    }
-
-    openSet.delete(current)
-
-    // Check neighbors
-    getNeighbors(currentPos, gameState, board).forEach(neighbor => {
-      const neighborStr = JSON.stringify(neighbor)
-      const tentativeGScore = (gScore.get(current) || 0) + 1
-
-      if (tentativeGScore < (gScore.get(neighborStr) || Infinity)) {
-        cameFrom.set(neighborStr, current)
-        gScore.set(neighborStr, tentativeGScore)
-        fScore.set(neighborStr, tentativeGScore + heuristic(neighbor, goal))
-        
-        if (!openSet.has(neighborStr)) {
-          openSet.add(neighborStr)
-        }
-      }
-    })
-  }
-
-  return null // No path found
-}
-
-function heuristic(a, b) {
-  // Manhattan distance
-  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y)
-}
-
-function getNeighbors(pos, gameState, board) {
-  const neighbors = []
-  const directions = [
-    {x: 0, y: 1}, {x: 0, y: -1},
-    {x: 1, y: 0}, {x: -1, y: 0}
-  ]
-
-  directions.forEach(dir => {
-    const neighbor = {
-      x: pos.x + dir.x,
-      y: pos.y + dir.y
-    }
-
-    if (isValidMove(neighbor, gameState, board)) {
-      neighbors.push(neighbor)
-    }
-  })
-
-  return neighbors
-}
-
-function isValidMove(pos, gameState, board) {
-  // Check bounds
-  if (pos.x < 0 || pos.x >= gameState.board.width) return false
-  if (pos.y < 0 || pos.y >= gameState.board.height) return false
-
-  // Check cell content
-  const cell = board[pos.y][pos.x]
-  return cell === CELL.EMPTY || cell === CELL.FOOD
-}
-
-function reconstructPath(cameFrom, current) {
-  const path = [JSON.parse(current)]
-  
-  while (cameFrom.has(current)) {
-    current = cameFrom.get(current)
-    path.unshift(JSON.parse(current))
-  }
-
-  return path.slice(1) // Remove start position
-}
-
-function getDirectionFromPath(head, next) {
-  if (next.x > head.x) return 'right'
-  if (next.x < head.x) return 'left'
-  if (next.y > head.y) return 'up'
-  if (next.y < head.y) return 'down'
-  return null
-}
-
-function calculateSafeMoves(gameState, board) {
+function getPossibleMoves(gameState, board) {
   const head = gameState.you.head
   const possibleMoves = []
 
   // Check each direction
   Object.values(DIRECTIONS).forEach(direction => {
     const nextPos = getNextPosition(head, direction)
-    const safetyScore = evaluateMove(nextPos, gameState, board)
-    
-    if (safetyScore > -100) { // -100 means deadly move
-      possibleMoves.push({
-        direction,
-        position: nextPos,
-        score: safetyScore
-      })
+    if (isSafeMove(nextPos, gameState, board)) {
+      possibleMoves.push(direction)
     }
   })
 
   return possibleMoves
 }
 
-function evaluateMove(pos, gameState, board) {
-  let score = 0
-  
+function isSafeMove(pos, gameState, board) {
   // Check bounds
-  if (pos.x < 0 || pos.x >= gameState.board.width) return -100
-  if (pos.y < 0 || pos.y >= gameState.board.height) return -100
-
-  // Get cell content
-  const cell = board[pos.y][pos.x]
-
-  // Score different scenarios
-  switch(cell) {
-    case CELL.EMPTY:
-      score += 10  // Basic safe move
-      break
-    case CELL.FOOD:
-      score += 20  // Food is good
-      // Add health consideration
-      if (gameState.you.health < 50) score += 30
-      break
-    case CELL.MY_BODY:
-    case CELL.ENEMY_BODY:
-      return -100  // Deadly
-    case CELL.ENEMY_HEAD:
-      return -100  // Very dangerous
-    case CELL.WALL:
-      return -100  // Can't move here
+  if (pos.x < 0 || pos.x >= gameState.board.width) {
+    console.log(`Position ${JSON.stringify(pos)} is out of bounds`)
+    return false
+  }
+  if (pos.y < 0 || pos.y >= gameState.board.height) {
+    console.log(`Position ${JSON.stringify(pos)} is out of bounds`)
+    return false
   }
 
-  // Check for nearby dangers
-  const dangers = checkSurroundingDangers(pos, gameState, board)
-  score -= dangers * 5
-
-  // Check if move leads to open space
-  const openSpace = countAccessibleCells(pos, gameState, board)
-  score += openSpace * 2
-
-  return score
+  // Check cell content
+  const cell = board[pos.y][pos.x]
+  const isSafe = cell === CELL.EMPTY || cell === CELL.FOOD
+  console.log(`Position ${JSON.stringify(pos)} is ${isSafe ? 'safe' : 'unsafe'} (cell type: ${cell})`)
+  return isSafe
 }
 
-function checkSurroundingDangers(pos, gameState, board) {
-  let dangers = 0
-  const directions = [{x: 1, y: 0}, {x: -1, y: 0}, {x: 0, y: 1}, {x: 0, y: -1}]
+function findFoodMove(gameState, board, safeMoves) {
+  const head = gameState.you.head
+  const foods = gameState.board.food
 
-  directions.forEach(dir => {
-    const checkPos = {
-      x: pos.x + dir.x,
-      y: pos.y + dir.y
-    }
+  if (foods.length === 0) return null
 
-    // Check if position is valid
-    if (checkPos.x >= 0 && checkPos.x < gameState.board.width &&
-        checkPos.y >= 0 && checkPos.y < gameState.board.height) {
-      const cell = board[checkPos.y][checkPos.x]
-      if (cell === CELL.ENEMY_HEAD || cell === CELL.ENEMY_BODY) {
-        dangers++
-      }
+  // Find closest food
+  let closestFood = foods[0]
+  let shortestDistance = calculateDistance(head, foods[0])
+
+  foods.forEach(food => {
+    const distance = calculateDistance(head, food)
+    if (distance < shortestDistance) {
+      closestFood = food
+      shortestDistance = distance
     }
   })
 
-  return dangers
+  // Choose move that gets us closer to food
+  return chooseMoveTowardTarget(head, closestFood, safeMoves)
 }
 
-function countAccessibleCells(pos, gameState, board) {
+function calculateDistance(pos1, pos2) {
+  return Math.abs(pos1.x - pos2.x) + Math.abs(pos1.y - pos2.y)
+}
+
+function chooseMoveTowardTarget(head, target, safeMoves) {
+  const moveScores = safeMoves.map(move => {
+    const nextPos = getNextPosition(head, move)
+    const score = calculateDistance(nextPos, target)
+    return { move, score }
+  })
+
+  // Choose move that minimizes distance
+  moveScores.sort((a, b) => a.score - b.score)
+  return moveScores[0]?.move
+}
+
+function chooseSafestMove(safeMoves, gameState, board) {
+  if (safeMoves.length === 0) return 'right'
+  
+  // Prefer moves that keep options open
+  const moveScores = safeMoves.map(move => {
+    const nextPos = getNextPosition(gameState.you.head, move)
+    const futureOptions = countFutureOptions(nextPos, gameState, board)
+    return { move, score: futureOptions }
+  })
+
+  moveScores.sort((a, b) => b.score - a.score)
+  return moveScores[0].move
+}
+
+function countFutureOptions(pos, gameState, board) {
   let count = 0
-  const visited = new Set()
-  const queue = [pos]
-
-  while (queue.length > 0) {
-    const current = queue.shift()
-    const key = `${current.x},${current.y}`
-
-    if (visited.has(key)) continue
-    visited.add(key)
-
-    // Count this cell
-    count++
-
-    // Check neighbors
-    const directions = [{x: 1, y: 0}, {x: -1, y: 0}, {x: 0, y: 1}, {x: 0, y: -1}]
-    directions.forEach(dir => {
-      const next = {
-        x: current.x + dir.x,
-        y: current.y + dir.y
-      }
-
-      // Check if valid and safe
-      if (next.x >= 0 && next.x < gameState.board.width &&
-          next.y >= 0 && next.y < gameState.board.height) {
-        const cell = board[next.y][next.x]
-        if (cell === CELL.EMPTY || cell === CELL.FOOD) {
-          queue.push(next)
-        }
-      }
-    })
-  }
-
+  Object.values(DIRECTIONS).forEach(direction => {
+    const nextPos = getNextPosition(pos, direction)
+    if (isSafeMove(nextPos, gameState, board)) {
+      count++
+    }
+  })
   return count
+}
+
+function getLastResortMove(gameState, board) {
+  const head = gameState.you.head
+  const moves = ['up', 'down', 'left', 'right']
+  
+  // Try each move
+  for (const move of moves) {
+    const nextPos = getNextPosition(head, move)
+    if (nextPos.x >= 0 && nextPos.x < gameState.board.width &&
+        nextPos.y >= 0 && nextPos.y < gameState.board.height) {
+      return move
+    }
+  }
+  
+  return 'right' // Last resort
+}
+
+function findEmergencyMove(gameState) {
+  console.log('EMERGENCY: Choosing fallback move')
+  const head = gameState.you.head
+  const moves = ['up', 'down', 'left', 'right']
+  
+  // Try to stay on board
+  for (const move of moves) {
+    const nextPos = getNextPosition(head, move)
+    if (nextPos.x >= 0 && nextPos.x < gameState.board.width &&
+        nextPos.y >= 0 && nextPos.y < gameState.board.height) {
+      console.log('Emergency move chosen:', move)
+      return move
+    }
+  }
+  
+  console.log('No valid emergency move found, defaulting to right')
+  return 'right'
 }
 
 function createGameBoard(gameState) {
