@@ -1,22 +1,36 @@
 const { evaluateMove } = require('./strategy')
 
 function getMoveResponse(gameState) {
+  const head = gameState.you.body[0]
   const possibleMoves = ['up', 'down', 'left', 'right']
   
-  // Score each possible move
-  const scoredMoves = possibleMoves.map(move => ({
-    move,
-    score: evaluateMove(gameState, getNextPosition(gameState.you.body[0], move))
-  }))
+  // Filter out moves that would hit walls
+  const safeMoves = possibleMoves.filter(move => {
+    const nextPos = getNextPosition(head, move)
+    
+    // Check walls
+    if (nextPos.x < 0) return false
+    if (nextPos.x >= gameState.board.width) return false
+    if (nextPos.y < 0) return false
+    if (nextPos.y >= gameState.board.height) return false
+    
+    // Check for self collision
+    return !willHitSelf(nextPos, gameState.you.body)
+  })
 
-  // Add some debugging
-  console.log('Scored moves:', scoredMoves)
-
-  // Sort by score and pick best move
-  scoredMoves.sort((a, b) => b.score - a.score)
+  // Log safe moves for debugging
+  console.log('Safe moves:', safeMoves)
   
-  console.log('Choosing move:', scoredMoves[0].move)
-  return scoredMoves[0].move
+  // If no safe moves available, we're trapped
+  if (safeMoves.length === 0) {
+    console.log('WARNING: No safe moves available!')
+    return possibleMoves[0] // We're probably going to die, but try something
+  }
+  
+  // Choose a random safe move
+  const move = safeMoves[Math.floor(Math.random() * safeMoves.length)]
+  console.log('Chosen move:', move)
+  return move
 }
 
 function getNextPosition(head, move) {
