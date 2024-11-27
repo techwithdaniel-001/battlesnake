@@ -35,40 +35,41 @@ function handleStart(req, res) {
 // Move handler
 function handleMove(req, res) {
   try {
-    const gameState = req.body
+    const gameState = req.body;
     
-    console.log('\n=== TURN', gameState.turn, '===')
-    console.log('Health:', gameState.you?.health || 100)
-    console.log('Length:', gameState.you?.body?.length || 1)
+    // Validate game state
+    if (!gameState || !gameState.you || !gameState.board) {
+      throw new Error('Invalid game state received');
+    }
+
+    const move = getMoveResponse(gameState);
     
-    // Create and display board
-    const gameBoard = board.createGameBoard(gameState)
-    board.printBoard(gameBoard)
-    
-    // Get move response
-    const move = getMoveResponse(gameState)
-    console.log('\nChosen move:', move)
-    
-    res.json({ move })
+    // Validate move before sending
+    if (!move || !move.move) {
+      throw new Error('Invalid move generated');
+    }
+
+    console.log(`Turn ${gameState.turn}: Chose move ${move.move}`);
+    res.json(move);
   } catch (error) {
-    console.error('Move Error:', error)
-    res.json({ move: 'right' })
+    console.error('Move error:', error);
+    // Send a safe fallback move
+    res.json({ move: 'up' });
   }
 }
 
 // End handler
 function handleEnd(req, res) {
   try {
-    const gameState = req.body
-    console.log('\n=== GAME OVER ===')
-    console.log('Game ID:', gameState.game.id)
-    console.log('Final Turn:', gameState.turn)
-    console.log('Final Length:', gameState.you.length)
-    console.log('Reason:', gameState.you.elimination_reason || 'Unknown')
-    res.json({})
+    const gameState = req.body;
+    console.log('\n=== GAME OVER ===');
+    console.log('Game ID:', gameState.game.id);
+    console.log('Final Turn:', gameState.turn);
+    console.log('Final Length:', gameState.you.length);
+    res.json({});
   } catch (error) {
-    console.error('End Error:', error)
-    res.json({})
+    console.error('End game error:', error);
+    res.json({});
   }
 }
 

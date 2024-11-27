@@ -6,37 +6,25 @@ const app = express()
 // Middleware
 app.use(express.json())
 
-// Make sure routes are defined
-console.log('Available routes:', Object.keys(routes))
-
-// Routes with explicit handlers
-if (routes.handleIndex) {
-  app.get('/', routes.handleIndex)
-} else {
-  console.error('handleIndex is undefined!')
-}
-
-if (routes.handleStart) {
-  app.post('/start', routes.handleStart)
-}
-
-if (routes.handleMove) {
-  app.post('/move', routes.handleMove)
-}
-
-if (routes.handleEnd) {
-  app.post('/end', routes.handleEnd)
-}
-
-// Error handling
+// Add error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack)
-  res.status(500).json({ error: 'Something broke!' })
+  console.error('ERROR:', err)
+  res.status(500).json({
+    error: 'Internal server error',
+    message: err.message
+  })
 })
 
-const port = process.env.PORT || 8080
-app.listen(port, () => {
-  console.log(`Server listening on port ${port}`)
+// Add request logging
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`)
+  next()
 })
+
+// Routes
+app.get('/', routes.handleIndex)
+app.post('/start', routes.handleStart)
+app.post('/move', routes.handleMove)
+app.post('/end', routes.handleEnd)
 
 module.exports = app

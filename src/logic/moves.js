@@ -91,20 +91,22 @@ function getMoveResponse(gameState) {
     
     // Get list of safe moves
     const safeMoves = getPossibleMoves(gameState, board)
-    console.log('Available safe moves:', safeMoves)
+    console.log('Safe moves:', safeMoves)
     
     if (safeMoves.length === 0) {
-      console.log('WARNING: No safe moves available!')
-      return { move: findEmergencyMove(gameState) }
+      console.log('NO SAFE MOVES AVAILABLE!')
+      // Emergency fallback to any valid move
+      return { move: getEmergencyMove(gameState) }
     }
 
+    // Choose best safe move
     const move = chooseSafestMove(safeMoves, gameState, board)
-    console.log('\nChosen safe move:', move)
+    console.log('Chosen move:', move)
     
     return { move }
   } catch (error) {
-    console.log('MOVE ERROR:', error)
-    return { move: findEmergencyMove(gameState) }
+    console.error('MOVE ERROR:', error)
+    return { move: getEmergencyMove(gameState) }
   }
 }
 
@@ -126,33 +128,34 @@ function getPossibleMoves(gameState, board) {
 }
 
 function isSafeMove(pos, gameState, board) {
-  // Check bounds first
-  if (pos.x < 0 || pos.x >= gameState.board.width ||
-      pos.y < 0 || pos.y >= gameState.board.height) {
-    console.log(`Position ${JSON.stringify(pos)} is out of bounds`)
-    return false
+  // 1. Basic boundary check
+  if (!isWithinBounds(pos, gameState)) {
+    console.log(`Rejecting move to ${JSON.stringify(pos)}: Out of bounds`);
+    return false;
   }
 
-  // Check for snake bodies
-  const cell = board[pos.y][pos.x]
-  if (cell === CELL.MY_BODY || cell === CELL.ENEMY_BODY) {
-    console.log(`Position ${JSON.stringify(pos)} contains snake body`)
-    return false
+  // 2. Snake collision check (including self)
+  if (isOccupiedBySnake(pos, gameState)) {
+    console.log(`Rejecting move to ${JSON.stringify(pos)}: Snake collision`);
+    return false;
   }
 
-  // Check for enemy head collisions
-  const myLength = gameState.you.body.length
-  const enemySnake = gameState.board.snakes.find(
-    snake => snake.id !== gameState.you.id && 
-    isAdjacent(snake.head, pos)
-  )
+  return true;
+}
 
-  if (enemySnake && enemySnake.body.length >= myLength) {
-    console.log(`Avoiding possible head collision with ${enemySnake.id} at ${JSON.stringify(pos)}`)
-    return false
-  }
+function isWithinBounds(pos, gameState) {
+  return pos.x >= 0 && 
+         pos.x < gameState.board.width && 
+         pos.y >= 0 && 
+         pos.y < gameState.board.height;
+}
 
-  return true
+function isOccupiedBySnake(pos, gameState) {
+  return gameState.board.snakes.some(snake => 
+    snake.body.some(segment => 
+      segment.x === pos.x && segment.y === pos.y
+    )
+  );
 }
 
 function chooseSafestMove(safeMoves, gameState, board) {
@@ -160,21 +163,34 @@ function chooseSafestMove(safeMoves, gameState, board) {
     const nextPos = getNextPosition(gameState.you.head, move)
     let score = 100  // Base score
     
-    // Space evaluation
-    const spaceScore = evaluateAvailableSpace(nextPos, gameState, board)
-    score += spaceScore * 2
-    
-    // Food evaluation
-    const foodScore = evaluateFoodPosition(nextPos, gameState)
-    if (needsFood(gameState)) {
-      score += foodScore * 2
+    // Basic safety first
+    if (!isWithinBounds(nextPos, gameState)) {
+      return { move, score: -1000 };  // Heavily penalize out-of-bounds
     }
     
-    // Trapping evaluation
-    const trapScore = evaluateTrappingOpportunities(nextPos, gameState)
-    score += trapScore
+    // Space evaluation (simplified)
+    const spaceScore = evaluateAvailableSpace(nextPos, gameState, board)
+    score += spaceScore
     
-    console.log(`${move}: space=${spaceScore}, food=${foodScore}, trap=${trapScore}, total=${score}`)
+    // Wall avoidance (stronger)
+    if (isNearWall(nextPos, gameState)) {
+      score -= 50
+    }
+    
+    // Only add advanced scoring if basic safety is confirmed
+    if (score > 0) {
+      // Food evaluation
+      if (needsFood(gameState)) {
+        const foodScore = evaluateFoodPosition(nextPos, gameState)
+        score += foodScore
+      }
+      
+      // Trapping evaluation (only if we're safe)
+      const trapScore = evaluateTrappingOpportunities(nextPos, gameState)
+      score += trapScore
+    }
+
+    console.log(`${move}: space=${spaceScore}, total=${score}`)
     return { move, score }
   })
 
@@ -263,23 +279,21 @@ function isClosestToFood(gameState) {
   })
 }
 
-function findEmergencyMove(gameState) {
-  console.log('EMERGENCY: Choosing fallback move')
+function getEmergencyMove(gameState) {
   const head = gameState.you.head
   const moves = ['up', 'down', 'left', 'right']
   
-  // Try to stay on board
+  // Try each move in order, return first one that doesn't hit a wall
   for (const move of moves) {
-    const nextPos = getNextPosition(head, move)
-    if (nextPos.x >= 0 && nextPos.x < gameState.board.width &&
-        nextPos.y >= 0 && nextPos.y < gameState.board.height) {
+    const pos = getNextPosition(head, move)
+    if (isWithinBounds(pos, gameState)) {
       console.log('Emergency move chosen:', move)
       return move
     }
   }
   
-  console.log('No valid emergency move found, defaulting to right')
-  return 'right'
+  console.log('No safe emergency moves! Defaulting to up')
+  return 'up'
 }
 
 function getEmergencyMoves(gameState, board) {
