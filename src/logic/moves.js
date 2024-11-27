@@ -1,34 +1,19 @@
-const DIRECTIONS = ['up', 'down', 'left', 'right']
+const { evaluateMove } = require('./strategy')
 
 function getMoveResponse(gameState) {
-  const possibleMoves = [...DIRECTIONS]
-  const safeMoves = possibleMoves.filter(move => isSafeMove(gameState, move))
+  const possibleMoves = ['up', 'down', 'left', 'right']
   
-  if (safeMoves.length === 0) return 'down'
-  return safeMoves[Math.floor(Math.random() * safeMoves.length)]
-}
+  // Score each possible move
+  const scoredMoves = possibleMoves.map(move => ({
+    move,
+    score: evaluateMove(gameState, getNextPosition(gameState.you.body[0], move))
+  }))
 
-function isSafeMove(gameState, move) {
-  const head = gameState.you.body[0]
-  const nextPosition = getNextPosition(head, move)
-  
-  // Don't hit walls
-  if (nextPosition.x < 0) return false
-  if (nextPosition.x >= gameState.board.width) return false
-  if (nextPosition.y < 0) return false
-  if (nextPosition.y >= gameState.board.height) return false
-  
-  // Don't hit snakes (including self)
-  const snakes = gameState.board.snakes
-  for (let snake of snakes) {
-    for (let bodyPart of snake.body) {
-      if (nextPosition.x === bodyPart.x && nextPosition.y === bodyPart.y) {
-        return false
-      }
-    }
-  }
-  
-  return true
+  // Sort by score
+  scoredMoves.sort((a, b) => b.score - a.score)
+
+  // Choose the highest scoring move
+  return scoredMoves[0].move
 }
 
 function getNextPosition(head, move) {
