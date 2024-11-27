@@ -3,7 +3,8 @@ const { isOutOfBounds, willHitSnake } = require('../utils/board')
 
 function getMoveResponse(gameState) {
   const head = gameState.you.body[0]
-  console.log('Current head position:', head)
+  const myLength = gameState.you.length
+  console.log('My length:', myLength)
   
   const possibleMoves = Object.values(DIRECTIONS)
   const safeMoves = []
@@ -19,7 +20,13 @@ function getMoveResponse(gameState) {
     }
     
     if (willHitSnake(nextPos, gameState.board.snakes)) {
-      console.log(`${move} would hit snake`)
+      console.log(`${move} would hit snake body`)
+      continue
+    }
+    
+    // Check for potential head-to-head collisions
+    if (willCollideWithLargerSnakeHead(nextPos, myLength, gameState.board.snakes)) {
+      console.log(`${move} risks head collision with larger snake`)
       continue
     }
     
@@ -29,14 +36,38 @@ function getMoveResponse(gameState) {
   
   console.log('Safe moves:', safeMoves)
   
-  // If no safe moves, try emergency move
   if (safeMoves.length === 0) {
     console.log('WARNING: No safe moves!')
     return emergencyMove(gameState)
   }
   
-  // Choose best move from safe moves
   return chooseBestMove(gameState, safeMoves)
+}
+
+function willCollideWithLargerSnakeHead(myNextPos, myLength, snakes) {
+  for (const snake of snakes) {
+    // Skip our own snake
+    if (snake.length <= myLength) continue
+    
+    // Get possible next positions for this snake's head
+    const theirHead = snake.head
+    const theirPossibleMoves = [
+      { x: theirHead.x, y: theirHead.y + 1 }, // up
+      { x: theirHead.x, y: theirHead.y - 1 }, // down
+      { x: theirHead.x - 1, y: theirHead.y }, // left
+      { x: theirHead.x + 1, y: theirHead.y }  // right
+    ]
+    
+    // If any of their possible moves collide with our next position
+    if (theirPossibleMoves.some(pos => 
+      pos.x === myNextPos.x && pos.y === myNextPos.y
+    )) {
+      console.log(`Possible head collision with snake of length ${snake.length}`)
+      return true
+    }
+  }
+  
+  return false
 }
 
 function chooseBestMove(gameState, safeMoves) {
@@ -63,29 +94,39 @@ function chooseBestMove(gameState, safeMoves) {
 function evaluatePosition(gameState, pos) {
   let score = 0
   const health = gameState.you.health
+  const myLength = gameState.you.length
   
-  // FOOD SEEKING - More aggressive now
+  // FOOD SEEKING
   const nearestFood = findNearestFood(gameState, pos)
   if (nearestFood) {
     const foodDistance = Math.abs(pos.x - nearestFood.x) + Math.abs(pos.y - nearestFood.y)
     
-    // Urgent food seeking when health is low
     if (health < 30) {
-      score += (200 - foodDistance * 2)  // Very high priority
+      score += (200 - foodDistance * 2)
       console.log(`Hungry! Food distance: ${foodDistance}, Score boost: ${200 - foodDistance * 2}`)
     }
-    // Moderate food seeking when health is medium
     else if (health < 75) {
-      score += (100 - foodDistance)  // Medium priority
+      score += (100 - foodDistance)
       console.log(`Could eat! Food distance: ${foodDistance}, Score boost: ${100 - foodDistance}`)
     }
   }
   
-  // Center control is now secondary to food
+  // AVOID LARGER SNAKES
+  for (const snake of gameState.board.snakes) {
+    if (snake.length > myLength) {
+      const distanceToTheirHead = Math.abs(pos.x - snake.head.x) + Math.abs(pos.y - snake.head.y)
+      if (distanceToTheirHead < 3) {
+        score -= (3 - distanceToTheirHead) * 50
+        console.log(`Avoiding larger snake! Distance: ${distanceToTheirHead}, Penalty: ${(3 - distanceToTheirHead) * 50}`)
+      }
+    }
+  }
+  
+  // Center control is now tertiary priority
   const centerX = Math.floor(gameState.board.width / 2)
   const centerY = Math.floor(gameState.board.height / 2)
   const distanceToCenter = Math.abs(pos.x - centerX) + Math.abs(pos.y - centerY)
-  score -= distanceToCenter * 0.5  // Reduced weight for center control
+  score -= distanceToCenter * 0.5
   
   console.log(`Position (${pos.x},${pos.y}) total score: ${score}`)
   return score
