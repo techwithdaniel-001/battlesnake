@@ -1,5 +1,5 @@
 const { getMoveResponse } = require('../logic/moves')
-const { CELL, createGameBoard, printBoard } = require('../utils/board')
+const board = require('../utils/board')
 
 // Add at the top with other constants
 const HEALTH_THRESHOLD = 50
@@ -38,20 +38,16 @@ function handleMove(req, res) {
     const gameState = req.body
     
     console.log('\n=== TURN', gameState.turn, '===')
-    console.log('Health:', gameState.you.health)
-    console.log('Length:', gameState.you.length)
+    console.log('Health:', gameState.you?.health || 100)
+    console.log('Length:', gameState.you?.body?.length || 1)
     
-    const board = createGameBoard(gameState)
-    console.log('\nCurrent Board:')
-    printBoard(board)
+    // Create and display board
+    const gameBoard = board.createGameBoard(gameState)
+    board.printBoard(gameBoard)
     
-    // Get move with A* pathfinding
+    // Get move response
     const move = getMoveResponse(gameState)
     console.log('\nChosen move:', move)
-    
-    if (gameState.you.health < HEALTH_THRESHOLD) {
-      console.log('Low health! Pursuing food')
-    }
     
     res.json({ move })
   } catch (error) {

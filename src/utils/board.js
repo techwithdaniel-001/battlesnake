@@ -48,13 +48,15 @@ function printBoard(board) {
   console.log('╔' + '═'.repeat(board[0].length * 2) + '╗')
   
   for (let y = board.length - 1; y >= 0; y--) {
-    let row = '║'
-    for (let x = 0; x < board[y].length; x++) {
-      row += symbols[board[y][x]] + ' '
-    }
-    row += '║'
-    console.log(row)
+    let row = board[y].map(cell => symbols[cell]).join(' ')
+    console.log('║' + row + '║')
   }
   
   console.log('╚' + '═'.repeat(board[0].length * 2) + '╝')
+}
+
+module.exports = {
+  CELL,
+  createGameBoard,
+  printBoard
 } 
