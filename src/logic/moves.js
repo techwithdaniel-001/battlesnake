@@ -718,44 +718,47 @@ function isControlPosition(pos, gameState) {
 function isStrictlySafe(pos, gameState) {
   // 1. Boundary check
   if (!isWithinBounds(pos, gameState)) {
+    console.log(`Position ${JSON.stringify(pos)} is out of bounds`);
     return false;
   }
 
-  // 2. Self collision check
-  const selfCollision = gameState.you.body.some(segment => 
-    segment.x === pos.x && segment.y === pos.y
-  );
-  if (selfCollision) {
-    return false;
-  }
-
-  // 3. Other snakes collision check
-  const otherSnakeCollision = gameState.board.snakes.some(snake => {
-    if (snake.id === gameState.you.id) return false;
-    return snake.body.some(segment => 
+  // 2. NEVER hit any snake body (including self)
+  const anySnakeCollision = gameState.board.snakes.some(snake => 
+    snake.body.some(segment => 
       segment.x === pos.x && segment.y === pos.y
-    );
-  });
-  if (otherSnakeCollision) {
+    )
+  );
+  if (anySnakeCollision) {
+    console.log(`Position ${JSON.stringify(pos)} collides with a snake body`);
     return false;
   }
 
-  // 4. Head-to-head collision check with larger or equal snakes
-  const dangerousHeadCollision = gameState.board.snakes.some(snake => {
+  // 3. Head-to-head rules: ONLY if we're strictly longer
+  const headToHeadCollision = gameState.board.snakes.some(snake => {
     if (snake.id === gameState.you.id) return false;
     
-    // Only check snakes that are our size or larger
-    if (snake.length >= gameState.you.length) {
-      const possibleEnemyMoves = ['up', 'down', 'left', 'right'].map(move => 
-        getNextPosition(snake.head, move)
-      );
-      return possibleEnemyMoves.some(enemyPos => 
-        enemyPos.x === pos.x && enemyPos.y === pos.y
-      );
+    // Get possible enemy next positions
+    const possibleEnemyMoves = ['up', 'down', 'left', 'right'].map(move => 
+      getNextPosition(snake.head, move)
+    );
+
+    // Check if we could meet head-to-head
+    const couldCollide = possibleEnemyMoves.some(enemyPos => 
+      enemyPos.x === pos.x && enemyPos.y === pos.y
+    );
+
+    if (couldCollide) {
+      // If we're not strictly longer, avoid head-to-head
+      if (gameState.you.length <= snake.length) {
+        console.log(`Avoiding head-to-head with ${snake.length}-length snake (we are ${gameState.you.length})`);
+        return true;
+      }
+      console.log(`Accepting head-to-head with ${snake.length}-length snake (we are ${gameState.you.length})`);
     }
     return false;
   });
-  if (dangerousHeadCollision) {
+
+  if (headToHeadCollision) {
     return false;
   }
 
