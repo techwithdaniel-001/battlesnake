@@ -23,15 +23,18 @@ function isSelfCollision(pos, gameState) {
 }
 
 function isValidPosition(pos, gameState) {
-    if (!isWithinBounds(pos, gameState)) return false;
-    if (isSelfCollision(pos, gameState)) return false;
-    
-    // Check for any snake collision
-    return !gameState.board.snakes.some(snake => 
+    // CRITICAL: Never allow ANY snake body collision
+    const hasAnySnakeCollision = gameState.board.snakes.some(snake => 
         snake.body.some(segment => 
             segment.x === pos.x && segment.y === pos.y
         )
     );
+    
+    // Immediate death conditions
+    if (!isWithinBounds(pos, gameState)) return false;
+    if (hasAnySnakeCollision) return false;  // STRICT: No body collisions ever
+
+    return true;
 }
 
 function countAvailableSpace(pos, gameState) {
@@ -142,33 +145,29 @@ function getMoveResponse(gameState) {
         console.log("\n🔍 Current position:", head);
 
         const pathAnalysis = findEscapeRoutes(gameState);
-        console.log("🛣 Flood-fill analysis:");
+        console.log("🛣️ Snake collision analysis:");
         pathAnalysis.forEach(p => {
             console.log(`${p.move.toUpperCase()}:
                 Score: ${p.score}
-                Space: ${p.spaceEval?.accessibleSpace || 0}
-                Dead Ends: ${p.spaceEval?.deadEnds || 0}
-                Escape Routes: ${p.spaceEval?.escapeRoutes || 0}
-                Distance to Food: ${p.spaceEval?.nearestFood || 'N/A'}
-                Wall Distance: ${p.spaceEval?.distanceToWall || 'N/A'}
+                Body Collisions: ${p.bodyCollisionRisk || 'None'}
+                Future Collision Risk: ${p.futureCollisionRisk || 'Low'}
+                Safe Distance: ${p.distanceToNearestSnake || 'N/A'}
             `);
         });
 
-        const safeMoves = pathAnalysis.filter(p => p.score > -Infinity);
+        // Filter out ANY moves that risk snake collision
+        const safeMoves = pathAnalysis.filter(p => 
+            p.score > -Infinity && !p.bodyCollisionRisk
+        );
         
         if (safeMoves.length > 0) {
             safeMoves.sort((a, b) => b.score - a.score);
             const bestMove = safeMoves[0].move;
-            console.log(`✅ Choosing best move: ${bestMove} (score: ${safeMoves[0].score})`);
-            console.log(`Reasoning:
-                - Available Space: ${safeMoves[0].spaceEval?.accessibleSpace}
-                - Escape Routes: ${safeMoves[0].spaceEval?.escapeRoutes}
-                - Dead End Risk: ${safeMoves[0].spaceEval?.deadEnds}
-            `);
+            console.log(`✅ Choosing safest move: ${bestMove} (score: ${safeMoves[0].score})`);
             return { move: bestMove };
         }
 
-        console.log("⚠️ No safe moves found, trying emergency move");
+        console.log("⚠️ No completely safe moves found, trying emergency move");
         return { move: findEmergencyMove(gameState) };
 
     } catch (error) {
@@ -362,6 +361,19 @@ function calculatePathPriority(path, gameState) {
     let priority = 0;
     const endPos = path[path.length - 1];
 
+    // NEW: Check future positions for potential snake collisions
+    const futureDangerZones = predictFutureSnakeBodies(gameState, path.length);
+    const mightHitSnake = path.some(pos => 
+        futureDangerZones.some(zone => 
+            zone.x === pos.x && zone.y === pos.y
+        )
+    );
+
+    // CRITICAL: Heavily penalize any path that might lead to snake collision
+    if (mightHitSnake) {
+        priority -= 2000;  // Make this a very high penalty
+    }
+
     // CRITICAL: Check if this path could lead to being trapped
     const potentialTrappedSpaces = checkForPotentialTrap(path, gameState);
     if (potentialTrappedSpaces < 3) {  // If less than 3 escape squares
@@ -458,6 +470,41 @@ function calculateEnemyTrapRisk(path, gameState) {
     });
 
     return risk;
+}
+
+function predictFutureSnakeBodies(gameState, depth) {
+    const dangerZones = new Set();
+
+    gameState.board.snakes.forEach(snake => {
+        if (snake.id === gameState.you.id) return;
+        
+        // Current snake body is always dangerous
+        snake.body.forEach(segment => {
+            dangerZones.add(`${segment.x},${segment.y}`);
+        });
+
+        // Predict possible future positions
+        let possibleHeads = [snake.head];
+        for (let i = 0; i < depth; i++) {
+            const newPossibleHeads = [];
+            possibleHeads.forEach(head => {
+                ['up', 'down', 'left', 'right'].forEach(move => {
+                    const nextPos = getNextPosition(head, move);
+                    if (isWithinBounds(nextPos, gameState)) {
+                        newPossibleHeads.push(nextPos);
+                        // Add entire predicted snake body
+                        dangerZones.add(`${nextPos.x},${nextPos.y}`);
+                    }
+                });
+            });
+            possibleHeads = newPossibleHeads;
+        }
+    });
+
+    return Array.from(dangerZones).map(str => {
+        const [x, y] = str.split(',');
+        return { x: parseInt(x), y: parseInt(y) };
+    });
 }
 
 // Export after all functions are defined
