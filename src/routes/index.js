@@ -1,30 +1,31 @@
 const { getMoveResponse } = require('../logic/moves')
 
-// Add debug logging function
-function debugLog(title, data) {
-  console.log('\n🔍 DEBUG:', title)
-  console.log(JSON.stringify(data, null, 2))
-  console.log('------------------------')
+// Board cell states (keep in sync with moves.js)
+const CELL = {
+  EMPTY: 0,
+  FOOD: 1,
+  MY_HEAD: 2,
+  MY_BODY: 3,
+  ENEMY_HEAD: 4,
+  ENEMY_BODY: 5,
+  WALL: 6,
+  DANGER: 7
 }
 
+// Index handler
 function handleIndex(req, res) {
-  try {
-    const battlesnakeInfo = {
-      apiversion: "1",
-      author: "Ebubechukwu",
-      color: "#FF0000",
-      head: "silly",
-      tail: "bolt",
-      version: "1.0.0"
-    }
-    console.log('Battlesnake Info:', battlesnakeInfo)
-    res.json(battlesnakeInfo)
-  } catch (error) {
-    console.error('Index Error:', error)
-    res.status(500).json({ error: error.message })
+  const battlesnakeInfo = {
+    apiversion: "1",
+    author: "Ebubechukwu",
+    color: "#FF0000",
+    head: "silly",
+    tail: "bolt",
+    version: "1.0.0"
   }
+  res.json(battlesnakeInfo)
 }
 
+// Start handler
 function handleStart(req, res) {
   try {
     const gameState = req.body
@@ -32,74 +33,42 @@ function handleStart(req, res) {
     console.log('Game ID:', gameState.game.id)
     console.log('Board Size:', gameState.board.width, 'x', gameState.board.height)
     console.log('My Snake ID:', gameState.you.id)
-    console.log('All Snakes:', gameState.board.snakes.map(s => ({
-      id: s.id,
-      length: s.length,
-      name: s.name
-    })))
     res.json({})
   } catch (error) {
     console.error('Start Error:', error)
-    res.status(500).json({ error: error.message })
+    res.json({})
   }
 }
 
+// Move handler
 function handleMove(req, res) {
   try {
     const gameState = req.body
     
-    // Debug: Log full game state
-    debugLog('FULL GAME STATE', {
-      turn: gameState.turn,
-      board: {
-        width: gameState.board.width,
-        height: gameState.board.height,
-        food: gameState.board.food,
-        snakes: gameState.board.snakes.map(s => ({
-          id: s.id,
-          length: s.length,
-          head: s.head
-        }))
-      },
-      you: {
-        id: gameState.you.id,
-        health: gameState.you.health,
-        length: gameState.you.length,
-        head: gameState.you.head
-      }
-    })
-
-    // Validate game state
-    if (!gameState.you || !gameState.board) {
-      debugLog('ERROR', 'Invalid game state')
-      throw new Error('Invalid game state received')
-    }
+    console.log('\n=== TURN', gameState.turn, '===')
+    console.log('Health:', gameState.you.health)
+    console.log('Length:', gameState.you.length)
     
-    // Get and validate move
-    debugLog('CALCULATING MOVE', {
-      myHead: gameState.you.head,
-      nearestFood: gameState.board.food[0]
-    })
+    const board = createGameBoard(gameState)
+    console.log('\nCurrent Board:')
+    printBoard(board)
     
+    // Get move with A* pathfinding
     const move = getMoveResponse(gameState)
+    console.log('\nChosen move:', move)
     
-    // Validate move response
-    if (!['up', 'down', 'left', 'right'].includes(move)) {
-      throw new Error(`Invalid move received: ${move}`)
+    if (gameState.you.health < HEALTH_THRESHOLD) {
+      console.log('Low health! Pursuing food')
     }
     
-    console.log('Move chosen:', move)
     res.json({ move })
-    
   } catch (error) {
     console.error('Move Error:', error)
-    console.error('Stack:', error.stack)
-    // Default to right if there's an error, but log it
-    console.error('Defaulting to RIGHT due to error')
     res.json({ move: 'right' })
   }
 }
 
+// End handler
 function handleEnd(req, res) {
   try {
     const gameState = req.body
@@ -111,8 +80,55 @@ function handleEnd(req, res) {
     res.json({})
   } catch (error) {
     console.error('End Error:', error)
-    res.status(500).json({ error: error.message })
+    res.json({})
   }
+}
+
+function createGameBoard(gameState) {
+  const width = gameState.board.width
+  const height = gameState.board.height
+  
+  // Initialize empty board
+  const board = Array(height).fill().map(() => 
+    Array(width).fill(CELL.EMPTY)
+  )
+  
+  // Add food
+  gameState.board.food.forEach(food => {
+    board[food.y][food.x] = CELL.FOOD
+  })
+  
+  // Add my snake
+  const mySnake = gameState.you
+  board[mySnake.head.y][mySnake.head.x] = CELL.MY_HEAD
+  mySnake.body.slice(1).forEach(segment => {
+    board[segment.y][segment.x] = CELL.MY_BODY
+  })
+  
+  // Add enemy snakes
+  gameState.board.snakes.forEach(snake => {
+    if (snake.id !== gameState.you.id) {
+      board[snake.head.y][snake.head.x] = CELL.ENEMY_HEAD
+      snake.body.slice(1).forEach(segment => {
+        board[segment.y][segment.x] = CELL.ENEMY_BODY
+      })
+    }
+  })
+  
+  return board
+}
+
+function printBoard(board) {
+  const symbols = ['⬜', '🍎', '😎', '🟦', '👿', '🟥', '⬛', '⚠️']
+  console.log('╔' + '═'.repeat(board[0].length * 2) + '╗')
+  
+  // Print board from top to bottom
+  for (let y = board.length - 1; y >= 0; y--) {
+    let row = board[y].map(cell => symbols[cell]).join(' ')
+    console.log('║' + row + '║')
+  }
+  
+  console.log('╚' + '═'.repeat(board[0].length * 2) + '╝')
 }
 
 module.exports = {

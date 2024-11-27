@@ -1,339 +1,359 @@
 const { DIRECTIONS } = require('../utils/constants')
-const { isOutOfBounds, willHitSnake } = require('../utils/board')
 
-// Board cell types
+// Board cell states
 const CELL = {
-  EMPTY: '.',
-  FOOD: '🍎',
-  MY_HEAD: '😎',
-  MY_BODY: '🟦',
-  ENEMY_HEAD: '👿',
-  ENEMY_BODY: '🟥',
-  DANGER: '⚠️',
-  SAFE_FOOD: '✅'
+  EMPTY: 0,
+  FOOD: 1,
+  MY_HEAD: 2,
+  MY_BODY: 3,
+  ENEMY_HEAD: 4,
+  ENEMY_BODY: 5,
+  WALL: 6,
+  DANGER: 7
 }
+
+// Health threshold for food pursuit
+const HEALTH_THRESHOLD = 50
 
 function getMoveResponse(gameState) {
-  debugLog('STARTING MOVE CALCULATION', {
-    turn: gameState.turn,
-    health: gameState.you.health
-  })
-  
-  // Create and display board
-  const board = createDetailedBoard(gameState)
-  debugLog('CURRENT BOARD', printBoardToString(board))
-  
-  // Get possible moves
-  const possibleMoves = getPossibleMoves(gameState)
-  debugLog('POSSIBLE MOVES', possibleMoves)
-  
-  // Evaluate each move
-  const scoredMoves = possibleMoves.map(move => ({
-    move,
-    score: evaluateMove(gameState, move)
-  }))
-  debugLog('MOVE SCORES', scoredMoves)
-  
-  // Choose best move
-  const bestMove = chooseBestMove(scoredMoves)
-  debugLog('CHOSEN MOVE', bestMove)
-  
-  return bestMove
+  try {
+    const board = createGameBoard(gameState)
+    console.log('\nCurrent Board:')
+    printBoard(board)
+
+    // Decide whether to pursue food
+    const shouldPursueFood = gameState.you.health < HEALTH_THRESHOLD
+    console.log(`Health: ${gameState.you.health}, Pursuing food: ${shouldPursueFood}`)
+
+    let bestMove
+    if (shouldPursueFood) {
+      // Find path to nearest food
+      const foodPath = findPathToNearestFood(gameState, board)
+      if (foodPath && foodPath.length > 0) {
+        bestMove = getDirectionFromPath(gameState.you.head, foodPath[0])
+        console.log('Food path found, moving:', bestMove)
+      }
+    }
+
+    // If no food path or not pursuing food, find safest move
+    if (!bestMove) {
+      const safeMoves = calculateSafeMoves(gameState, board)
+      bestMove = chooseBestMove(safeMoves)
+      console.log('Using safe move:', bestMove)
+    }
+
+    return bestMove || 'right'
+  } catch (error) {
+    console.error('Move error:', error)
+    return 'right'
+  }
 }
 
-// Helper to convert board to string
-function printBoardToString(board) {
-  return board.map(row => row.join(' ')).join('\n')
+function findPathToNearestFood(gameState, board) {
+  const start = gameState.you.head
+  const foods = gameState.board.food
+
+  // Find closest food using A*
+  let shortestPath = null
+  let shortestDistance = Infinity
+
+  foods.forEach(food => {
+    const path = aStarSearch(start, food, gameState, board)
+    if (path && path.length < shortestDistance) {
+      shortestPath = path
+      shortestDistance = path.length
+    }
+  })
+
+  return shortestPath
 }
 
-function createDetailedBoard(gameState) {
-  const board = Array(gameState.board.height).fill()
-    .map(() => Array(gameState.board.width).fill(CELL.EMPTY))
+function aStarSearch(start, goal, gameState, board) {
+  const openSet = new Set([JSON.stringify(start)])
+  const cameFrom = new Map()
   
-  // Mark food
-  gameState.board.food.forEach(f => {
-    board[f.y][f.x] = CELL.FOOD
-  })
+  const gScore = new Map()
+  gScore.set(JSON.stringify(start), 0)
   
-  // Mark snakes
-  gameState.board.snakes.forEach(snake => {
-    const isMe = snake.id === gameState.you.id
+  const fScore = new Map()
+  fScore.set(JSON.stringify(start), heuristic(start, goal))
+
+  while (openSet.size > 0) {
+    // Find node with lowest fScore
+    let current = null
+    let lowestFScore = Infinity
     
-    // Mark head
-    const head = snake.body[0]
-    board[head.y][head.x] = isMe ? CELL.MY_HEAD : CELL.ENEMY_HEAD
-    
-    // Mark body
-    snake.body.slice(1).forEach(segment => {
-      board[segment.y][segment.x] = isMe ? CELL.MY_BODY : CELL.ENEMY_BODY
+    openSet.forEach(pos => {
+      const score = fScore.get(pos) || Infinity
+      if (score < lowestFScore) {
+        lowestFScore = score
+        current = pos
+      }
     })
+
+    const currentPos = JSON.parse(current)
+    
+    // Check if reached goal
+    if (currentPos.x === goal.x && currentPos.y === goal.y) {
+      return reconstructPath(cameFrom, current)
+    }
+
+    openSet.delete(current)
+
+    // Check neighbors
+    getNeighbors(currentPos, gameState, board).forEach(neighbor => {
+      const neighborStr = JSON.stringify(neighbor)
+      const tentativeGScore = (gScore.get(current) || 0) + 1
+
+      if (tentativeGScore < (gScore.get(neighborStr) || Infinity)) {
+        cameFrom.set(neighborStr, current)
+        gScore.set(neighborStr, tentativeGScore)
+        fScore.set(neighborStr, tentativeGScore + heuristic(neighbor, goal))
+        
+        if (!openSet.has(neighborStr)) {
+          openSet.add(neighborStr)
+        }
+      }
+    })
+  }
+
+  return null // No path found
+}
+
+function heuristic(a, b) {
+  // Manhattan distance
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y)
+}
+
+function getNeighbors(pos, gameState, board) {
+  const neighbors = []
+  const directions = [
+    {x: 0, y: 1}, {x: 0, y: -1},
+    {x: 1, y: 0}, {x: -1, y: 0}
+  ]
+
+  directions.forEach(dir => {
+    const neighbor = {
+      x: pos.x + dir.x,
+      y: pos.y + dir.y
+    }
+
+    if (isValidMove(neighbor, gameState, board)) {
+      neighbors.push(neighbor)
+    }
+  })
+
+  return neighbors
+}
+
+function isValidMove(pos, gameState, board) {
+  // Check bounds
+  if (pos.x < 0 || pos.x >= gameState.board.width) return false
+  if (pos.y < 0 || pos.y >= gameState.board.height) return false
+
+  // Check cell content
+  const cell = board[pos.y][pos.x]
+  return cell === CELL.EMPTY || cell === CELL.FOOD
+}
+
+function reconstructPath(cameFrom, current) {
+  const path = [JSON.parse(current)]
+  
+  while (cameFrom.has(current)) {
+    current = cameFrom.get(current)
+    path.unshift(JSON.parse(current))
+  }
+
+  return path.slice(1) // Remove start position
+}
+
+function getDirectionFromPath(head, next) {
+  if (next.x > head.x) return 'right'
+  if (next.x < head.x) return 'left'
+  if (next.y > head.y) return 'up'
+  if (next.y < head.y) return 'down'
+  return null
+}
+
+function calculateSafeMoves(gameState, board) {
+  const head = gameState.you.head
+  const possibleMoves = []
+
+  // Check each direction
+  Object.values(DIRECTIONS).forEach(direction => {
+    const nextPos = getNextPosition(head, direction)
+    const safetyScore = evaluateMove(nextPos, gameState, board)
+    
+    if (safetyScore > -100) { // -100 means deadly move
+      possibleMoves.push({
+        direction,
+        position: nextPos,
+        score: safetyScore
+      })
+    }
+  })
+
+  return possibleMoves
+}
+
+function evaluateMove(pos, gameState, board) {
+  let score = 0
+  
+  // Check bounds
+  if (pos.x < 0 || pos.x >= gameState.board.width) return -100
+  if (pos.y < 0 || pos.y >= gameState.board.height) return -100
+
+  // Get cell content
+  const cell = board[pos.y][pos.x]
+
+  // Score different scenarios
+  switch(cell) {
+    case CELL.EMPTY:
+      score += 10  // Basic safe move
+      break
+    case CELL.FOOD:
+      score += 20  // Food is good
+      // Add health consideration
+      if (gameState.you.health < 50) score += 30
+      break
+    case CELL.MY_BODY:
+    case CELL.ENEMY_BODY:
+      return -100  // Deadly
+    case CELL.ENEMY_HEAD:
+      return -100  // Very dangerous
+    case CELL.WALL:
+      return -100  // Can't move here
+  }
+
+  // Check for nearby dangers
+  const dangers = checkSurroundingDangers(pos, gameState, board)
+  score -= dangers * 5
+
+  // Check if move leads to open space
+  const openSpace = countAccessibleCells(pos, gameState, board)
+  score += openSpace * 2
+
+  return score
+}
+
+function checkSurroundingDangers(pos, gameState, board) {
+  let dangers = 0
+  const directions = [{x: 1, y: 0}, {x: -1, y: 0}, {x: 0, y: 1}, {x: 0, y: -1}]
+
+  directions.forEach(dir => {
+    const checkPos = {
+      x: pos.x + dir.x,
+      y: pos.y + dir.y
+    }
+
+    // Check if position is valid
+    if (checkPos.x >= 0 && checkPos.x < gameState.board.width &&
+        checkPos.y >= 0 && checkPos.y < gameState.board.height) {
+      const cell = board[checkPos.y][checkPos.x]
+      if (cell === CELL.ENEMY_HEAD || cell === CELL.ENEMY_BODY) {
+        dangers++
+      }
+    }
+  })
+
+  return dangers
+}
+
+function countAccessibleCells(pos, gameState, board) {
+  let count = 0
+  const visited = new Set()
+  const queue = [pos]
+
+  while (queue.length > 0) {
+    const current = queue.shift()
+    const key = `${current.x},${current.y}`
+
+    if (visited.has(key)) continue
+    visited.add(key)
+
+    // Count this cell
+    count++
+
+    // Check neighbors
+    const directions = [{x: 1, y: 0}, {x: -1, y: 0}, {x: 0, y: 1}, {x: 0, y: -1}]
+    directions.forEach(dir => {
+      const next = {
+        x: current.x + dir.x,
+        y: current.y + dir.y
+      }
+
+      // Check if valid and safe
+      if (next.x >= 0 && next.x < gameState.board.width &&
+          next.y >= 0 && next.y < gameState.board.height) {
+        const cell = board[next.y][next.x]
+        if (cell === CELL.EMPTY || cell === CELL.FOOD) {
+          queue.push(next)
+        }
+      }
+    })
+  }
+
+  return count
+}
+
+function createGameBoard(gameState) {
+  const width = gameState.board.width
+  const height = gameState.board.height
+  
+  // Initialize empty board
+  const board = Array(height).fill().map(() => 
+    Array(width).fill(CELL.EMPTY)
+  )
+  
+  // Add food
+  gameState.board.food.forEach(food => {
+    board[food.y][food.x] = CELL.FOOD
+  })
+  
+  // Add my snake
+  const mySnake = gameState.you
+  board[mySnake.head.y][mySnake.head.x] = CELL.MY_HEAD
+  mySnake.body.slice(1).forEach(segment => {
+    board[segment.y][segment.x] = CELL.MY_BODY
+  })
+  
+  // Add enemy snakes
+  gameState.board.snakes.forEach(snake => {
+    if (snake.id !== gameState.you.id) {
+      board[snake.head.y][snake.head.x] = CELL.ENEMY_HEAD
+      snake.body.slice(1).forEach(segment => {
+        board[segment.y][segment.x] = CELL.ENEMY_BODY
+      })
+    }
   })
   
   return board
 }
 
-function markDangerZones(board, gameState) {
-  const myLength = gameState.you.length
-  
-  gameState.board.snakes.forEach(snake => {
-    if (snake.id === gameState.you.id) return
-    
-    const head = snake.head
-    const isLarger = snake.length >= myLength
-    
-    // Mark
-  })
-}
-
 function printBoard(board) {
-  console.log('Board:')
-  board.forEach(row => console.log(row.join(' ')))
-}
-
-function chooseBestMove(board, gameState, foodPaths) {
-  let bestMove = foodPaths[0].path[0]
-  let bestScore = -Infinity
+  const symbols = ['⬜', '🍎', '😎', '🟦', '👿', '🟥', '⬛']
+  console.log('\nCurrent Board:')
+  console.log('╔' + '═'.repeat(board[0].length * 2) + '╗')
   
-  for (const {path, safety} of foodPaths) {
-    let score = evaluatePosition(gameState, path[0])
-    
-    // Add safety bonus
-    score += safety * 100
-    
-    if (score > bestScore) {
-      bestScore = score
-      bestMove = path[0]
-    }
+  // Print board from top to bottom
+  for (let y = board.length - 1; y >= 0; y--) {
+    let row = board[y].map(cell => symbols[cell]).join(' ')
+    console.log('║' + row + '║')
   }
   
-  console.log(`Chose ${bestMove} with score ${bestScore}`)
-  return bestMove
-}
-
-function willHitSelf(pos, myBody) {
-  // Check all body segments except the tail (which will move)
-  return myBody.slice(0, -1).some(segment => 
-    segment.x === pos.x && segment.y === pos.y
-  )
-}
-
-function willHitOtherSnakes(pos, snakes, myId) {
-  return snakes.some(snake => 
-    snake.id !== myId && 
-    snake.body.some(segment => 
-      segment.x === pos.x && segment.y === pos.y
-    )
-  )
-}
-
-function willGetTrapped(pos, gameState) {
-  // Do a flood fill to count available spaces
-  const availableSpace = floodFill(pos, gameState)
-  const myLength = gameState.you.length
-  
-  // If available space is less than our length, it's a trap
-  if (availableSpace < myLength) {
-    console.log(`Only ${availableSpace} spaces available, need ${myLength}`)
-    return true
-  }
-  return false
-}
-
-function floodFill(start, gameState) {
-  const visited = new Set()
-  const queue = [start]
-  const board = gameState.board
-  
-  while (queue.length > 0) {
-    const pos = queue.shift()
-    const key = `${pos.x},${pos.y}`
-    
-    if (visited.has(key)) continue
-    if (isOutOfBounds(pos, board)) continue
-    if (willHitSnake(pos, gameState.board.snakes)) continue
-    
-    visited.add(key)
-    
-    // Add adjacent squares
-    queue.push(
-      {x: pos.x + 1, y: pos.y},
-      {x: pos.x - 1, y: pos.y},
-      {x: pos.x, y: pos.y + 1},
-      {x: pos.x, y: pos.y - 1}
-    )
-  }
-  
-  return visited.size
-}
-
-function willCollideWithLargerSnakeHead(myNextPos, myLength, snakes) {
-  for (const snake of snakes) {
-    // Skip our own snake
-    if (snake.length <= myLength) continue
-    
-    // Get possible next positions for this snake's head
-    const theirHead = snake.head
-    const theirPossibleMoves = [
-      { x: theirHead.x, y: theirHead.y + 1 }, // up
-      { x: theirHead.x, y: theirHead.y - 1 }, // down
-      { x: theirHead.x - 1, y: theirHead.y }, // left
-      { x: theirHead.x + 1, y: theirHead.y }  // right
-    ]
-    
-    // If any of their possible moves collide with our next position
-    if (theirPossibleMoves.some(pos => 
-      pos.x === myNextPos.x && pos.y === myNextPos.y
-    )) {
-      console.log(`Possible head collision with snake of length ${snake.length}`)
-      return true
-    }
-  }
-  
-  return false
-}
-
-function evaluatePosition(gameState, pos) {
-  let score = 0
-  const health = gameState.you.health
-  const myLength = gameState.you.length
-  
-  // HUNTING OTHER SNAKES
-  for (const snake of gameState.board.snakes) {
-    if (snake.id === gameState.you.id) continue // Skip self
-    
-    const theirHead = snake.head
-    const theirLength = snake.length
-    
-    // If we're longer, try to trap them
-    if (myLength > theirLength + 1) {
-      const distanceToTheirHead = Math.abs(pos.x - theirHead.x) + Math.abs(pos.y - theirHead.y)
-      
-      if (distanceToTheirHead === 1) {
-        // Adjacent to their head - perfect for trapping
-        score += 300
-        console.log(`Can trap smaller snake! Length diff: ${myLength - theirLength}`)
-      } else if (distanceToTheirHead < 4) {
-        // Close enough to hunt
-        score += (4 - distanceToTheirHead) * 50
-        console.log(`Hunting smaller snake! Distance: ${distanceToTheirHead}`)
-      }
-    } else {
-      // If we're smaller or equal, keep safe distance
-      const distanceToTheirHead = Math.abs(pos.x - theirHead.x) + Math.abs(pos.y - theirHead.y)
-      if (distanceToTheirHead < 3) {
-        score -= (3 - distanceToTheirHead) * 50
-        console.log(`Avoiding larger/equal snake! Distance: ${distanceToTheirHead}`)
-      }
-    }
-  }
-  
-  // TRAP DETECTION
-  const futureSpace = calculateFutureSpace(pos, gameState, 3)
-  score += futureSpace * 2
-  
-  // FOOD SEEKING (less priority when hunting)
-  const nearestFood = findNearestFood(gameState, pos)
-  if (nearestFood) {
-    const foodDistance = Math.abs(pos.x - nearestFood.x) + Math.abs(pos.y - nearestFood.y)
-    
-    if (health < 30) {
-      score += (200 - foodDistance * 2)
-      console.log(`Hungry! Food distance: ${foodDistance}`)
-    }
-    else if (health < 75 && !isHunting(gameState)) {
-      score += (100 - foodDistance)
-      console.log(`Could eat! Food distance: ${foodDistance}`)
-    }
-  }
-  
-  return score
-}
-
-function isHunting(gameState) {
-  const myLength = gameState.you.length
-  return gameState.board.snakes.some(snake => 
-    snake.id !== gameState.you.id && 
-    myLength > snake.length + 1 &&
-    getDistance(gameState.you.head, snake.head) < 4
-  )
-}
-
-function getDistance(pos1, pos2) {
-  return Math.abs(pos1.x - pos2.x) + Math.abs(pos1.y - pos2.y)
-}
-
-function predictSnakeMove(snake, gameState) {
-  const possibleMoves = []
-  const head = snake.head
-  
-  // Check all possible moves
-  for (const move of Object.values(DIRECTIONS)) {
-    const nextPos = getNextPosition(head, move)
-    if (!isOutOfBounds(nextPos, gameState.board) && 
-        !willHitSnake(nextPos, gameState.board.snakes)) {
-      possibleMoves.push(nextPos)
-    }
-  }
-  
-  return possibleMoves
-}
-
-function canTrapSnake(myPos, theirHead, gameState) {
-  const theirMoves = predictSnakeMove({head: theirHead}, gameState)
-  if (theirMoves.length <= 1) return true // They're almost trapped
-  
-  // Check if we can cut off their escape routes
-  const myMoves = predictSnakeMove({head: myPos}, gameState)
-  return myMoves.some(myMove => 
-    theirMoves.length === 2 && 
-    theirMoves.some(theirMove => 
-      getDistance(myMove, theirMove) === 1
-    )
-  )
-}
-
-function findNearestFood(gameState, pos) {
-  let nearestFood = null
-  let minDistance = Infinity
-
-  for (const food of gameState.board.food) {
-    const distance = Math.abs(pos.x - food.x) + Math.abs(pos.y - food.y)
-    if (distance < minDistance) {
-      minDistance = distance
-      nearestFood = food
-    }
-  }
-
-  if (nearestFood) {
-    console.log(`Nearest food at (${nearestFood.x},${nearestFood.y}), distance: ${minDistance}`)
-  }
-  
-  return nearestFood
-}
-
-function emergencyMove(gameState) {
-  const head = gameState.you.body[0]
-  const moves = Object.values(DIRECTIONS)
-  
-  // Try to move away from walls
-  if (head.x === 0) return DIRECTIONS.RIGHT
-  if (head.x === gameState.board.width - 1) return DIRECTIONS.LEFT
-  if (head.y === 0) return DIRECTIONS.UP
-  if (head.y === gameState.board.height - 1) return DIRECTIONS.DOWN
-  
-  return moves[0]
+  console.log('╚' + '═'.repeat(board[0].length * 2) + '╝')
 }
 
 function getNextPosition(head, move) {
   switch(move) {
-    case DIRECTIONS.UP: return { x: head.x, y: head.y + 1 }
-    case DIRECTIONS.DOWN: return { x: head.x, y: head.y - 1 }
-    case DIRECTIONS.LEFT: return { x: head.x - 1, y: head.y }
-    case DIRECTIONS.RIGHT: return { x: head.x + 1, y: head.y }
+    case 'up': return { x: head.x, y: head.y + 1 }
+    case 'down': return { x: head.x, y: head.y - 1 }
+    case 'left': return { x: head.x - 1, y: head.y }
+    case 'right': return { x: head.x + 1, y: head.y }
+    default: return head
   }
 }
 
 module.exports = {
-  getMoveResponse,
-  getNextPosition
+  getMoveResponse
 } 
