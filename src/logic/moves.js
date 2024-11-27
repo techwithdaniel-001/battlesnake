@@ -12,12 +12,19 @@ function getDirection(from, to) {
 }
 
 function getNextPosition(head, move) {
+  if (!head) {
+    console.log("WARNING: Invalid head position provided to getNextPosition");
+    return null;
+  }
+  
   switch(move) {
-    case 'up': return { x: head.x, y: head.y + 1 }
-    case 'down': return { x: head.x, y: head.y - 1 }
-    case 'left': return { x: head.x - 1, y: head.y }
-    case 'right': return { x: head.x + 1, y: head.y }
-    default: return head
+    case 'up': return { x: head.x, y: head.y + 1 };
+    case 'down': return { x: head.x, y: head.y - 1 };
+    case 'left': return { x: head.x - 1, y: head.y };
+    case 'right': return { x: head.x + 1, y: head.y };
+    default: 
+      console.log("WARNING: Invalid move provided:", move);
+      return null;
   }
 }
 
@@ -169,57 +176,68 @@ function isOccupiedBySnake(pos, gameState) {
 }
 
 function chooseSafestMove(safeMoves, gameState, board) {
+  console.log("\n💭 Analyzing safe moves:", safeMoves);
+  
   const moveScores = safeMoves.map(move => {
     const nextPos = getNextPosition(gameState.you.head, move);
-    let score = 100;  // Base score
-    
-    // Analyze wall situation
-    const wallAnalysis = analyzeWallSituation(nextPos, gameState);
-    
-    // Smart wall scoring
-    if (wallAnalysis.isAgainstWall) {
-      // Being against wall is okay if we have escape paths
-      if (wallAnalysis.escapePaths >= 2) {
-        score -= 200; // Small penalty
-      } else {
-        score -= 800; // Big penalty for limited escape
+    let score = 100;
+
+    // 1. Heavily penalize moves near larger snakes
+    gameState.board.snakes.forEach(snake => {
+      if (snake.id !== gameState.you.id && snake.length >= gameState.you.length) {
+        const distanceToHead = Math.abs(nextPos.x - snake.head.x) + Math.abs(nextPos.y - snake.head.y);
+        if (distanceToHead <= 2) {
+          score -= 1000;
+          console.log(`⚠️ ${move}: Too close to larger snake! (-1000)`);
+        }
       }
-    } else if (wallAnalysis.isNearWall) {
-      // Near wall is fine if we can trap others
-      if (wallAnalysis.canTrapOthers) {
-        score += 300; // Bonus for tactical position
-      } else {
-        score -= 100; // Small penalty for being near wall
-      }
-    }
+    });
 
-    // Space evaluation with escape paths
-    const spaceScore = evaluateAvailableSpace(nextPos, gameState, board);
-    score += spaceScore * wallAnalysis.escapePaths; // Weight by escape options
+    // 2. Reward moves with more escape routes
+    const futureEscapes = countFutureEscapeRoutes(nextPos, gameState);
+    score += futureEscapes * 100;
+    console.log(`🚪 ${move}: ${futureEscapes} future escapes (+${futureEscapes * 100})`);
 
-    // Food evaluation considering wall position
-    const foodScore = evaluateFoodPosition(nextPos, gameState);
-    if (needsFood(gameState)) {
-      // Desperate for food - take more risks
-      if (gameState.you.health < 30) {
-        score += foodScore * 3;
-      } else {
-        score += foodScore * wallAnalysis.safetyScore;
-      }
-    }
+    // 3. Prefer center of board
+    const distanceToCenter = Math.abs(nextPos.x - gameState.board.width/2) + 
+                           Math.abs(nextPos.y - gameState.board.height/2);
+    score -= distanceToCenter * 10;
+    console.log(`🎯 ${move}: Distance from center: ${distanceToCenter} (-${distanceToCenter * 10})`);
 
-    // Trapping evaluation
-    if (wallAnalysis.canTrapOthers) {
-      const trapScore = evaluateTrappingOpportunities(nextPos, gameState);
-      score += trapScore * 2; // Double trap score if position is good
-    }
-
-    console.log(`${move}: safety=${wallAnalysis.safetyScore}, escapes=${wallAnalysis.escapePaths}, trap=${wallAnalysis.canTrapOthers}, total=${score}`);
     return { move, score };
   });
 
   moveScores.sort((a, b) => b.score - a.score);
+  console.log("\n📊 Final move scores:", moveScores);
+
+  // If best move has negative score, try to find any safe move
+  if (moveScores[0].score < 0) {
+    console.log("⚠️ All moves seem dangerous, looking for safest option...");
+    // Find move with most escape routes
+    return moveScores.reduce((safest, current) => {
+      const safestEscapes = countFutureEscapeRoutes(
+        getNextPosition(gameState.you.head, safest.move), 
+        gameState
+      );
+      const currentEscapes = countFutureEscapeRoutes(
+        getNextPosition(gameState.you.head, current.move), 
+        gameState
+      );
+      return currentEscapes > safestEscapes ? current : safest;
+    }).move;
+  }
+
   return moveScores[0].move;
+}
+
+function willDieNextTurn(pos, gameState) {
+  // Check for immediate head-to-head with larger/equal snakes
+  return gameState.board.snakes.some(snake => {
+    if (snake.id === gameState.you.id) return false;
+    
+    const distanceToHead = Math.abs(pos.x - snake.head.x) + Math.abs(pos.y - snake.head.y);
+    return distanceToHead <= 1 && snake.length >= gameState.you.length;
+  });
 }
 
 function isNearWall(pos, gameState) {
@@ -716,52 +734,303 @@ function isControlPosition(pos, gameState) {
 
 // Add this at the top with other utility functions
 function isStrictlySafe(pos, gameState) {
-  // 1. Basic boundary check
-  if (!isWithinBounds(pos, gameState)) {
-    console.log(`UNSAFE: Position ${JSON.stringify(pos)} is out of bounds`);
-    return false;
-  }
+  // Debug current position
+  console.log("\n🔍 Analyzing position:", pos);
 
-  // 2. Never hit ANY snake body
-  const anySnakeCollision = gameState.board.snakes.some(snake => 
-    snake.body.some(segment => 
-      segment.x === pos.x && segment.y === pos.y
-    )
-  );
-  if (anySnakeCollision) {
-    console.log(`UNSAFE: Position ${JSON.stringify(pos)} hits snake body`);
-    return false;
-  }
-
-  // 3. SUPER STRICT head-to-head check - Must be AT LEAST 2 longer
-  const headToHeadDanger = gameState.board.snakes.some(snake => {
+  // 1. Never move next to ANY larger snake's head
+  const largerSnakeNearby = gameState.board.snakes.some(snake => {
     if (snake.id === gameState.you.id) return false;
     
-    const possibleEnemyMoves = ['up', 'down', 'left', 'right'].map(move => 
-      getNextPosition(snake.head, move)
-    );
-
-    const couldCollide = possibleEnemyMoves.some(enemyPos => 
-      enemyPos.x === pos.x && enemyPos.y === pos.y
-    );
-
-    if (couldCollide) {
-      // Only safe if we're AT LEAST 2 longer
-      const lengthAdvantage = gameState.you.length - snake.length;
-      if (lengthAdvantage < 2) {
-        console.log(`UNSAFE: Not enough length advantage over ${snake.length}-length snake (we are ${gameState.you.length}, need +2)`);
+    // Calculate distance to enemy head
+    const distanceToHead = Math.abs(pos.x - snake.head.x) + Math.abs(pos.y - snake.head.y);
+    
+    // If snake is larger or equal, keep safe distance
+    if (snake.length >= gameState.you.length) {
+      if (distanceToHead <= 2) {  // Increased safe distance
+        console.log(`❌ Larger/Equal snake nearby: ${snake.length} vs our ${gameState.you.length}`);
         return true;
       }
-      console.log(`SAFE: Can eliminate ${snake.length}-length snake (we are ${gameState.you.length}, +${lengthAdvantage} advantage)`);
     }
     return false;
   });
 
-  if (headToHeadDanger) {
+  if (largerSnakeNearby) return false;
+
+  // 2. Check for boxing in
+  const futureEscapeRoutes = countFutureEscapeRoutes(pos, gameState);
+  if (futureEscapeRoutes < 2) {
+    console.log(`❌ Could get boxed in! Only ${futureEscapeRoutes} future escape routes`);
     return false;
   }
 
   return true;
+}
+
+function countFutureEscapeRoutes(pos, gameState) {
+  let escapeRoutes = 0;
+  const moves = ['up', 'down', 'left', 'right'];
+  
+  moves.forEach(move => {
+    const nextPos = getNextPosition(pos, move);
+    if (!nextPos) return;
+
+    // Check if move is safe
+    if (isWithinBounds(nextPos, gameState) && 
+        !isPositionOccupied(nextPos, gameState) && 
+        !isNearLargerSnake(nextPos, gameState)) {
+      escapeRoutes++;
+    }
+  });
+
+  console.log(`🚪 Found ${escapeRoutes} potential escape routes from ${JSON.stringify(pos)}`);
+  return escapeRoutes;
+}
+
+function isNearLargerSnake(pos, gameState) {
+  return gameState.board.snakes.some(snake => {
+    if (snake.id === gameState.you.id) return false;
+    
+    // Check if snake is larger or equal
+    if (snake.length >= gameState.you.length) {
+      // Calculate all possible next positions for enemy snake
+      const enemyMoves = ['up', 'down', 'left', 'right']
+        .map(move => getNextPosition(snake.head, move))
+        .filter(movePos => movePos !== null);
+      
+      // If any possible enemy move could reach us, it's dangerous
+      return enemyMoves.some(enemyPos => 
+        Math.abs(pos.x - enemyPos.x) + Math.abs(pos.y - enemyPos.y) <= 1
+      );
+    }
+    return false;
+  });
+}
+
+function checkForTraps(pos, gameState) {
+  try {
+    // Count available escape routes
+    const escapeRoutes = countEscapeRoutes(pos, gameState);
+    
+    // Safely get enemy snakes
+    const enemySnakes = gameState.board.snakes.filter(snake => {
+      // Validate snake object
+      if (!snake || !snake.head || !snake.body || !snake.id) {
+        console.log("WARNING: Invalid snake object detected:", snake);
+        return false;
+      }
+      return snake.id !== gameState.you.id;
+    });
+
+    // Debug logging
+    console.log("Enemy snakes:", enemySnakes.length);
+    enemySnakes.forEach(snake => {
+      console.log(`Enemy at (${snake.head.x},${snake.head.y}), length: ${snake.length}`);
+    });
+
+    // Safely calculate potential blocks
+    const potentialBlocks = [];
+    enemySnakes.forEach(snake => {
+      const moves = ['up', 'down', 'left', 'right'];
+      moves.forEach(move => {
+        const newPos = getNextPosition(snake.head, move);
+        if (newPos) {
+          potentialBlocks.push(newPos);
+        }
+      });
+    });
+
+    // Calculate safe spaces
+    const safeSpaces = escapeRoutes.filter(route => 
+      !potentialBlocks.some(block => 
+        block.x === route.x && block.y === route.y
+      )
+    );
+
+    console.log("Safe spaces found:", safeSpaces.length);
+
+    // Detect immediate dangers
+    if (safeSpaces.length < 2) {
+      return {
+        isTrap: true,
+        reason: `Limited escape routes (${safeSpaces.length} safe spaces)`
+      };
+    }
+
+    // Check for corridor trap
+    const isInCorridor = checkForCorridor(pos, gameState);
+    if (isInCorridor) {
+      return {
+        isTrap: true,
+        reason: 'Corridor trap detected'
+      };
+    }
+
+    // Check for corner trap
+    const isInCorner = checkForCornerTrap(pos, gameState);
+    if (isInCorner) {
+      return {
+        isTrap: true,
+        reason: 'Corner trap detected'
+      };
+    }
+
+    return { isTrap: false };
+  } catch (error) {
+    console.error("ERROR in checkForTraps:", error);
+    // Return conservative result on error
+    return {
+      isTrap: true,
+      reason: 'Error in trap detection'
+    };
+  }
+}
+
+function countEscapeRoutes(pos, gameState) {
+  return ['up', 'down', 'left', 'right']
+    .map(move => getNextPosition(pos, move))
+    .filter(newPos => 
+      newPos && 
+      isWithinBounds(newPos, gameState) && 
+      !isPositionOccupied(newPos, gameState) &&
+      !isNearEnemyHead(newPos, gameState)
+    );
+}
+
+function checkForCorridor(pos, gameState) {
+  // Check if we're between snake bodies
+  const adjacentSpaces = [
+    {x: pos.x - 1, y: pos.y},
+    {x: pos.x + 1, y: pos.y},
+    {x: pos.x, y: pos.y - 1},
+    {x: pos.x, y: pos.y + 1}
+  ];
+  
+  const blockedSpaces = adjacentSpaces.filter(space => 
+    !isWithinBounds(space, gameState) || 
+    isPositionOccupied(space, gameState)
+  ).length;
+
+  return blockedSpaces >= 3; // If 3 or more sides are blocked
+}
+
+function checkForCornerTrap(pos, gameState) {
+  // Check if we're being forced into a corner
+  const isNearWall = pos.x <= 1 || pos.x >= gameState.board.width - 2 ||
+                     pos.y <= 1 || pos.y >= gameState.board.height - 2;
+                     
+  if (!isNearWall) return false;
+
+  // Count nearby enemy snakes
+  const nearbyEnemies = gameState.board.snakes.filter(snake => 
+    snake.id !== gameState.you.id &&
+    Math.abs(snake.head.x - pos.x) + Math.abs(snake.head.y - pos.y) <= 2
+  ).length;
+
+  return nearbyEnemies >= 1;
+}
+
+function checkForPincerMove(pos, gameState) {
+  const enemies = gameState.board.snakes.filter(snake => snake.id !== gameState.you.id);
+  
+  // Check if enemies are positioned for a pincer movement
+  for (let i = 0; i < enemies.length; i++) {
+    for (let j = i + 1; j < enemies.length; j++) {
+      const enemy1 = enemies[i];
+      const enemy2 = enemies[j];
+      
+      // Check if enemies are on opposite sides
+      const isPincer = (
+        (Math.abs(enemy1.head.x - pos.x) <= 2 && Math.abs(enemy2.head.x - pos.x) <= 2) ||
+        (Math.abs(enemy1.head.y - pos.y) <= 2 && Math.abs(enemy2.head.y - pos.y) <= 2)
+      );
+      
+      if (isPincer) return true;
+    }
+  }
+  
+  return false;
+}
+
+function isPositionOccupied(pos, gameState) {
+  return gameState.board.snakes.some(snake => 
+    snake.body.some(segment => 
+      segment.x === pos.x && segment.y === pos.y
+    )
+  );
+}
+
+function countOpenSpace(pos, gameState, depth) {
+  if (depth === 0) return 0;
+  
+  const moves = ['up', 'down', 'left', 'right'];
+  let count = 0;
+  
+  moves.forEach(move => {
+    const newPos = getNextPosition(pos, move);
+    if (isWithinBounds(newPos, gameState) && !isPositionOccupied(newPos, gameState)) {
+      count += 1 + countOpenSpace(newPos, gameState, depth - 1);
+    }
+  });
+  
+  return count;
+}
+
+function isNearEnemyHead(pos, gameState) {
+  return gameState.board.snakes.some(snake => {
+    if (snake.id === gameState.you.id) return false;
+    const distance = Math.abs(pos.x - snake.head.x) + Math.abs(pos.y - snake.head.y);
+    return distance <= 1 && snake.length >= gameState.you.length;
+  });
+}
+
+function detectPotentialTrap(pos, gameState, depth = 2) {
+    console.log("🔍 Checking for potential traps...");
+    
+    // Count escape routes now
+    const currentEscapes = countEscapeRoutes(pos, gameState);
+    
+    // Look ahead for potential boxing in
+    const enemySnakes = gameState.board.snakes.filter(s => s.id !== gameState.you.id);
+    let dangerZones = new Set();
+    
+    // Calculate where enemy snakes could move
+    enemySnakes.forEach(snake => {
+        const possibleMoves = getPossibleMoves(snake.head)
+            .map(move => getNextPosition(snake.head, move))
+            .filter(pos => isWithinBounds(pos, gameState));
+            
+        possibleMoves.forEach(pos => dangerZones.add(`${pos.x},${pos.y}`));
+    });
+    
+    // If we're getting boxed in, warn early
+    if (currentEscapes <= 2 && dangerZones.size >= currentEscapes - 1) {
+        console.log("⚠️ TRAP WARNING: Could get boxed in soon!");
+        return true;
+    }
+    
+    return false;
+}
+
+function chooseSafestMove(safeMoves, gameState) {
+    // First, check if we're heading towards a trap
+    const nextPositions = safeMoves.map(move => ({
+        move,
+        pos: getNextPosition(gameState.you.head, move)
+    }));
+    
+    // Filter out moves that lead to potential traps
+    const safestMoves = nextPositions.filter(({pos}) => 
+        !detectPotentialTrap(pos, gameState)
+    );
+    
+    if (safestMoves.length > 0) {
+        console.log("✅ Found moves that avoid traps!");
+        return safestMoves[0].move;
+    }
+    
+    // If all moves are dangerous, try to find the least trapped option...
+    console.log("⚠️ All moves look dangerous, choosing least trapped...");
+    return findLeastTrappedMove(safeMoves, gameState);
 }
 
 module.exports = {
