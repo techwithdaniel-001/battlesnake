@@ -1,175 +1,100 @@
 const { DIRECTIONS } = require('../utils/constants')
 const { isOutOfBounds, willHitSnake } = require('../utils/board')
 
-function getMoveResponse(gameState) {
-  // Create a game map for visualization
-  const gameMap = createGameMap(gameState)
-  console.log('Current game state:')
-  printGameMap(gameMap)
-  
-  const head = gameState.you.body[0]
-  const myLength = gameState.you.length
-  
-  // Plan paths to all food
-  const foodPaths = planFoodPaths(gameState)
-  console.log('Available food paths:', foodPaths)
-  
-  const possibleMoves = Object.values(DIRECTIONS)
-  const safeMoves = []
-  
-  for (const move of possibleMoves) {
-    const nextPos = getNextPosition(head, move)
-    
-    // Skip unsafe moves
-    if (!isSafeMove(nextPos, gameState)) continue
-    
-    // Check future space availability
-    const futureSpace = calculateFutureSpace(nextPos, gameState, 5) // Look 5 moves ahead
-    if (futureSpace < myLength) {
-      console.log(`${move} leads to restricted space in future: ${futureSpace}`)
-      continue
-    }
-    
-    safeMoves.push({
-      move: move,
-      position: nextPos,
-      futureSpace: futureSpace
-    })
-  }
-  
-  console.log('Safe moves with future space:', safeMoves)
-  
-  if (safeMoves.length === 0) {
-    console.log('WARNING: No safe moves!')
-    return emergencyMove(gameState)
-  }
-  
-  return chooseBestMove(gameState, safeMoves, foodPaths)
+// Board cell types
+const CELL = {
+  EMPTY: '.',
+  FOOD: '🍎',
+  MY_HEAD: '😎',
+  MY_BODY: '🟦',
+  ENEMY_HEAD: '👿',
+  ENEMY_BODY: '🟥',
+  DANGER: '⚠️',
+  SAFE_FOOD: '✅'
 }
 
-function createGameMap(gameState) {
-  const width = gameState.board.width
-  const height = gameState.board.height
-  const map = Array(height).fill().map(() => Array(width).fill('.'))
+function getMoveResponse(gameState) {
+  // Create and display detailed board state
+  const board = createDetailedBoard(gameState)
+  console.log('\nCurrent Board State:')
+  printBoard(board)
+  
+  // Mark dangerous areas around enemy heads
+  markDangerZones(board, gameState)
+  console.log('\nBoard with Danger Zones:')
+  printBoard(board)
+  
+  // Find safe paths to food
+  const foodPaths = findSafeFoodPaths(board, gameState)
+  console.log('\nFound food paths:', 
+    foodPaths.map(p => ({
+      food: `(${p.food.x},${p.food.y})`,
+      length: p.path.length,
+      safety: p.safety.toFixed(2)
+    }))
+  )
+  
+  // Choose best move based on board analysis
+  return chooseBestMove(board, gameState, foodPaths)
+}
+
+function createDetailedBoard(gameState) {
+  const board = Array(gameState.board.height).fill()
+    .map(() => Array(gameState.board.width).fill(CELL.EMPTY))
   
   // Mark food
-  gameState.board.food.forEach(f => map[f.y][f.x] = 'F')
+  gameState.board.food.forEach(f => {
+    board[f.y][f.x] = CELL.FOOD
+  })
   
   // Mark snakes
   gameState.board.snakes.forEach(snake => {
-    snake.body.forEach((b, i) => {
-      if (i === 0) map[b.y][b.x] = 'H' // Head
-      else map[b.y][b.x] = 'B' // Body
+    const isMe = snake.id === gameState.you.id
+    
+    // Mark head
+    const head = snake.body[0]
+    board[head.y][head.x] = isMe ? CELL.MY_HEAD : CELL.ENEMY_HEAD
+    
+    // Mark body
+    snake.body.slice(1).forEach(segment => {
+      board[segment.y][segment.x] = isMe ? CELL.MY_BODY : CELL.ENEMY_BODY
     })
   })
   
-  return map
+  return board
 }
 
-function printGameMap(map) {
-  console.log('Game Map:')
-  map.reverse().forEach(row => console.log(row.join(' ')))
-  map.reverse() // Restore original orientation
-}
-
-function planFoodPaths(gameState) {
-  const paths = []
-  const head = gameState.you.body[0]
+function markDangerZones(board, gameState) {
+  const myLength = gameState.you.length
   
-  for (const food of gameState.board.food) {
-    const path = findPath(head, food, gameState)
-    if (path) {
-      paths.push({
-        food: food,
-        path: path,
-        distance: path.length
-      })
-    }
-  }
-  
-  return paths.sort((a, b) => a.distance - b.distance)
-}
-
-function findPath(start, goal, gameState) {
-  const queue = [{pos: start, path: []}]
-  const visited = new Set()
-  
-  while (queue.length > 0) {
-    const {pos, path} = queue.shift()
-    const key = `${pos.x},${pos.y}`
+  gameState.board.snakes.forEach(snake => {
+    if (snake.id === gameState.you.id) return
     
-    if (pos.x === goal.x && pos.y === goal.y) {
-      return path
-    }
+    const head = snake.head
+    const isLarger = snake.length >= myLength
     
-    if (visited.has(key)) continue
-    visited.add(key)
-    
-    // Add all possible moves
-    for (const move of Object.values(DIRECTIONS)) {
-      const nextPos = getNextPosition(pos, move)
-      if (isSafeMove(nextPos, gameState)) {
-        queue.push({
-          pos: nextPos,
-          path: [...path, move]
-        })
-      }
-    }
-  }
-  
-  return null
-}
-
-function calculateFutureSpace(startPos, gameState, depth) {
-  let minSpace = Infinity
-  let currentSpace = floodFill(startPos, gameState)
-  
-  // Simulate future moves
-  for (let i = 1; i <= depth; i++) {
-    const futureState = simulateFuture(gameState, i)
-    const space = floodFill(startPos, futureState)
-    minSpace = Math.min(minSpace, space)
-  }
-  
-  return minSpace
-}
-
-function simulateFuture(gameState, steps) {
-  // Create a deep copy of the game state
-  const futureState = JSON.parse(JSON.stringify(gameState))
-  
-  // Simulate snake movements
-  futureState.board.snakes.forEach(snake => {
-    // Simple simulation: snake body follows head
-    for (let i = 0; i < steps; i++) {
-      snake.body.pop() // Remove tail
-      snake.body.unshift({...snake.body[0]}) // Add new segment at head
-    }
+    // Mark
   })
-  
-  return futureState
 }
 
-function chooseBestMove(gameState, safeMoves, foodPaths) {
-  let bestMove = safeMoves[0].move
+function printBoard(board) {
+  console.log('Board:')
+  board.forEach(row => console.log(row.join(' ')))
+}
+
+function chooseBestMove(board, gameState, foodPaths) {
+  let bestMove = foodPaths[0].path[0]
   let bestScore = -Infinity
   
-  for (const {move, position, futureSpace} of safeMoves) {
-    let score = evaluatePosition(gameState, position)
+  for (const {path, safety} of foodPaths) {
+    let score = evaluatePosition(gameState, path[0])
     
-    // Add trapping bonus
-    for (const snake of gameState.board.snakes) {
-      if (snake.id !== gameState.you.id && 
-          gameState.you.length > snake.length + 1 &&
-          canTrapSnake(position, snake.head, gameState)) {
-        score += 500
-        console.log(`Move ${move} can trap snake!`)
-      }
-    }
+    // Add safety bonus
+    score += safety * 100
     
     if (score > bestScore) {
       bestScore = score
-      bestMove = move
+      bestMove = path[0]
     }
   }
   
