@@ -362,27 +362,102 @@ function calculatePathPriority(path, gameState) {
     let priority = 0;
     const endPos = path[path.length - 1];
 
-    // 1. Snake Distance Priority
+    // CRITICAL: Check if this path could lead to being trapped
+    const potentialTrappedSpaces = checkForPotentialTrap(path, gameState);
+    if (potentialTrappedSpaces < 3) {  // If less than 3 escape squares
+        priority -= 1000;  // Heavily penalize paths that could lead to traps
+    }
+
+    // NEW: Check if we're moving into a corner or edge
+    const isCornerOrEdge = isPositionCornerOrEdge(endPos, gameState);
+    if (isCornerOrEdge) {
+        priority -= 500;  // Significant penalty for corner/edge positions
+    }
+
+    // NEW: Check if enemy snakes could cut off our escape
+    const enemyTrapRisk = calculateEnemyTrapRisk(path, gameState);
+    priority -= enemyTrapRisk * 300;
+
+    // Existing priorities...
     gameState.board.snakes.forEach(snake => {
         const distanceToHead = Math.abs(endPos.x - snake.head.x) + 
                              Math.abs(endPos.y - snake.head.y);
-        priority += Math.min(distanceToHead * 10, 50);  // Max 50 points for distance
+        priority += Math.min(distanceToHead * 10, 50);
     });
 
-    // 2. Open Space Priority
-    const openSpace = countAvailableSpace(endPos, gameState);
-    priority += openSpace * 5;  // More open space = better
+    return -priority;
+}
 
-    // 3. Wall Distance Priority
-    const wallDistance = Math.min(
-        endPos.x,
-        gameState.board.width - 1 - endPos.x,
-        endPos.y,
-        gameState.board.height - 1 - endPos.y
-    );
-    priority += wallDistance * 2;  // Being away from walls is good
+function checkForPotentialTrap(path, gameState) {
+    const endPos = path[path.length - 1];
+    let availableSpace = 0;
+    const visited = new Set();
+    const queue = [endPos];
 
-    return -priority;  // Lower priority = better path
+    // Simulate enemy snake possible moves
+    const enemyPossibleMoves = predictEnemyMoves(gameState);
+    
+    while (queue.length > 0) {
+        const current = queue.shift();
+        const key = `${current.x},${current.y}`;
+        
+        if (visited.has(key)) continue;
+        visited.add(key);
+        availableSpace++;
+
+        // Get valid neighbors that aren't potentially blocked by enemies
+        const neighbors = getValidNeighbors(current, gameState)
+            .filter(pos => !enemyPossibleMoves.some(enemy => 
+                enemy.x === pos.x && enemy.y === pos.y
+            ));
+
+        queue.push(...neighbors);
+    }
+
+    return availableSpace;
+}
+
+function predictEnemyMoves(gameState) {
+    const enemyMoves = [];
+    gameState.board.snakes.forEach(snake => {
+        if (snake.id === gameState.you.id) return;
+        
+        // Predict possible moves for this enemy
+        ['up', 'down', 'left', 'right'].forEach(move => {
+            const nextPos = getNextPosition(snake.head, move);
+            if (isWithinBounds(nextPos, gameState)) {
+                enemyMoves.push(nextPos);
+            }
+        });
+    });
+    return enemyMoves;
+}
+
+function isPositionCornerOrEdge(pos, gameState) {
+    const isEdge = pos.x === 0 || pos.x === gameState.board.width - 1 ||
+                  pos.y === 0 || pos.y === gameState.board.height - 1;
+    const isCorner = (pos.x === 0 || pos.x === gameState.board.width - 1) &&
+                    (pos.y === 0 || pos.y === gameState.board.height - 1);
+    return isEdge || isCorner;
+}
+
+function calculateEnemyTrapRisk(path, gameState) {
+    const endPos = path[path.length - 1];
+    let risk = 0;
+
+    gameState.board.snakes.forEach(snake => {
+        if (snake.id === gameState.you.id) return;
+        
+        // Calculate how many moves it would take enemy to cut off our path
+        const distanceToPath = Math.abs(snake.head.x - endPos.x) + 
+                             Math.abs(snake.head.y - endPos.y);
+        
+        if (distanceToPath <= path.length + 2) {  // If enemy can reach our path
+            risk += (path.length + 2 - distanceToPath) / path.length;
+        }
+    });
+
+    return risk;
 }
 
 // Export after all functions are defined
