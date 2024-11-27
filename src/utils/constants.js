@@ -1,8 +1,30 @@
+const DIRECTIONS = {
+  UP: 'up',
+  DOWN: 'down',
+  LEFT: 'left',
+  RIGHT: 'right'
+}
+
+const SNAKE_CONFIG = {
+  SAFE_HEALTH: 75,
+  LOW_HEALTH: 40,
+  CRITICAL_HEALTH: 25,
+  MIN_SAFE_DISTANCE: 2,
+  PREFERRED_SIZE: 6,
+  COIL_THRESHOLD: 75
+}
+
+const WEIGHTS = {
+  SURVIVAL: 100,
+  ESCAPE_ROUTES: 20,
+  FOOD_SCORE: 15,
+  CENTER_POSITION: 10,
+  SPACE_CONTROL: 8,
+  DEFENSIVE_POSITION: 5
+}
+
 module.exports = {
-  DIRECTIONS: ['up', 'down', 'left', 'right'],
-  SNAKE_CONFIG: {
-    color: "#888888",
-    head: "default",
-    tail: "default"
-  }
+  DIRECTIONS,
+  SNAKE_CONFIG,
+  WEIGHTS
 } 
