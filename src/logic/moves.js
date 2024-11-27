@@ -24,10 +24,17 @@ function getValidNeighbors(pos, gameState) {
 }
 
 function isValidPosition(pos, gameState) {
-    return pos.x >= 0 && 
-           pos.x < gameState.board.width && 
-           pos.y >= 0 && 
-           pos.y < gameState.board.height;
+    // Wall collision check
+    const isWallCollision = pos.x < 0 || 
+                           pos.x >= gameState.board.width || 
+                           pos.y < 0 || 
+                           pos.y >= gameState.board.height;
+    
+    if (isWallCollision) {
+        console.log(`🧱 Wall collision detected at ${JSON.stringify(pos)}`);
+        return false;
+    }
+    return true;
 }
 
 function getQuickValidMoves(pos, gameState) {
@@ -489,6 +496,8 @@ const SCENARIOS = {
 let moveCounter = 0;
 
 function getValidMoves(pos, gameState) {
+    console.log("\n=== CHECKING MOVES ===");
+    
     const moves = [
         {x: pos.x, y: pos.y + 1},  // up
         {x: pos.x, y: pos.y - 1},  // down
@@ -496,92 +505,77 @@ function getValidMoves(pos, gameState) {
         {x: pos.x + 1, y: pos.y}   // right
     ];
 
-    // Filter valid moves
+    // Enhanced move validation with detailed logging
     return moves.filter(move => {
-        // Basic validity checks
-        if (!isValidPosition(move, gameState)) return false;
-        if (willHitSnake(move, gameState)) return false;
+        console.log(`\nChecking move to ${JSON.stringify(move)}:`);
 
-        // Check for immediate head-to-head collisions
-        const isHeadToHeadRisky = gameState.board.snakes.some(snake => {
-            if (snake.id === gameState.you.id) return false;
-            
-            const headDistance = Math.abs(snake.head.x - move.x) + 
-                               Math.abs(snake.head.y - move.y);
-            
-            return headDistance === 1 && snake.length >= gameState.you.length;
-        });
+        // 1. Wall collision check
+        if (!isValidPosition(move, gameState)) {
+            console.log(`🧱 INVALID: Would hit wall`);
+            return false;
+        }
 
-        if (isHeadToHeadRisky) return false;
+        // 2. Near wall check (optional warning)
+        if (isNearWall(move, gameState)) {
+            console.log(`⚠️ WARNING: Near wall at ${JSON.stringify(move)}`);
+            // Don't reject the move, but it will affect scoring
+        }
 
-        // Space check
-        const spaceAnalysis = analyzeAvailableSpace(move, gameState);
-        if (spaceAnalysis.accessibleSpace < 2) return false;
-
+        // Rest of collision checks...
         return true;
     });
 }
 
-// Helper function to get move direction
-function getMoveDirection(from, to) {
-    if (to.x > from.x) return 'right';
-    if (to.x < from.x) return 'left';
-    if (to.y > from.y) return 'up';
-    if (to.y < from.y) return 'down';
-    return 'up'; // fallback
+// New function to detect if we're getting too close to walls
+function isNearWall(pos, gameState) {
+    const WALL_DANGER = 1; // How close to wall is considered "near"
+    
+    return pos.x <= WALL_DANGER || 
+           pos.x >= gameState.board.width - WALL_DANGER - 1 || 
+           pos.y <= WALL_DANGER || 
+           pos.y >= gameState.board.height - WALL_DANGER - 1;
 }
 
-// Update getMoveResponse to use this
+// Add wall awareness to move scoring
+function calculateSpaceScore(pos, gameState) {
+    let score = 0;
+    
+    // Heavy penalty for being near walls
+    if (isNearWall(pos, gameState)) {
+        score -= 200;
+        console.log(`⚠️ Wall proximity penalty: -200`);
+    }
+
+    // Space analysis
+    const spaceAnalysis = analyzeAvailableSpace(pos, gameState);
+    score += spaceAnalysis.accessibleSpace * 50;
+    
+    return {
+        score,
+        analysis: spaceAnalysis
+    };
+}
+
+// Update getMoveResponse to show wall awareness
 function getMoveResponse(gameState) {
     const moveId = moveCounter++;
-    const timerLabel = `moveCalc_${moveId}`;
-    console.time(timerLabel);
+    console.time(`moveCalc_${moveId}`);
     
     try {
         const head = gameState.you.head;
-        console.log(`\n=== MOVE ${moveId} ANALYSIS ===`);
-        console.log(`❤️ [Move ${moveId}] Health: ${gameState.you.health}`);
+        console.log("\n=== MOVE ANALYSIS ===");
+        console.log(`Current position: ${JSON.stringify(head)}`);
+        console.log(`Board size: ${gameState.board.width}x${gameState.board.height}`);
         
-        // Get valid moves first
-        const validMoves = getValidMoves(head, gameState);
-        console.log(`🎯 [Move ${moveId}] Valid moves found:`, 
-            validMoves.map(m => getMoveDirection(head, m))
-        );
-
-        // Score the valid moves
-        const scoredMoves = validMoves.map(pos => ({
-            move: getMoveDirection(head, pos),
-            scores: {
-                health: calculateHealthScore(pos, gameState),
-                space: calculateSpaceScore(pos, gameState).score,
-                bodyHugging: calculateBodyHuggingScore(pos, gameState),
-                prediction: predictFutureMoves(gameState).dangerZones.has(`${pos.x},${pos.y}`) ? -500 : 0
-            }
-        }));
-
-        // Calculate total scores and log details
-        scoredMoves.forEach(move => {
-            move.totalScore = Object.values(move.scores).reduce((a, b) => a + b, 0);
-            console.log(`📊 [Move ${moveId}] ${move.move.toUpperCase()} score breakdown:`, move.scores);
-        });
-
-        if (scoredMoves.length === 0) {
-            console.log(`⚠️ [Move ${moveId}] No valid moves found, using emergency move`);
-            console.timeEnd(timerLabel);
-            return { move: findEmergencyMove(gameState) };
+        // Check if we're near any walls
+        if (isNearWall(head, gameState)) {
+            console.log(`⚠️ Currently near wall, seeking open space`);
         }
 
-        scoredMoves.sort((a, b) => b.totalScore - a.totalScore);
-        const bestMove = scoredMoves[0];
+        // Rest of the move logic...
         
-        console.log(`✅ [Move ${moveId}] Choosing move: ${bestMove.move} (score: ${bestMove.totalScore})`);
-        console.timeEnd(timerLabel);
-        
-        return { move: bestMove.move };
-
     } catch (error) {
-        console.error(`❌ [Move ${moveId}] Error:`, error);
-        console.timeEnd(timerLabel);
+        console.error("Error in move calculation:", error);
         return { move: findEmergencyMove(gameState) };
     }
 }
@@ -591,16 +585,6 @@ function calculatePathScore(pos, safePaths) {
     return safePaths.filter(path => 
         path.some(p => p.x === pos.x && p.y === pos.y)
     ).length * 100;
-}
-
-function calculateSpaceScore(pos, gameState) {
-    const analysis = analyzeAvailableSpace(pos, gameState);
-    return {
-        score: analysis.accessibleSpace * 50 - 
-               analysis.deadEnds * 100 + 
-               analysis.escapeRoutes * 150,
-        analysis: analysis
-    };
 }
 
 function calculateScenarioScore(pos, gameState) {
