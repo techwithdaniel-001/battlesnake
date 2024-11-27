@@ -10,49 +10,85 @@ const CELL = {
 }
 
 function createGameBoard(gameState) {
-  const width = gameState.board.width
-  const height = gameState.board.height
+  if (!gameState || !gameState.board) {
+    console.error('Invalid game state for board creation');
+    return null;
+  }
+
+  const width = gameState.board.width;
+  const height = gameState.board.height;
   
   // Initialize empty board
-  const board = Array(height).fill().map(() => 
-    Array(width).fill(CELL.EMPTY)
-  )
+  const board = Array(height).fill(null)
+    .map(() => Array(width).fill(0));
   
-  // Add food
-  gameState.board.food.forEach(food => {
-    board[food.y][food.x] = CELL.FOOD
-  })
-  
-  // Add my snake
-  const mySnake = gameState.you
-  board[mySnake.head.y][mySnake.head.x] = CELL.MY_HEAD
-  mySnake.body.slice(1).forEach(segment => {
-    board[segment.y][segment.x] = CELL.MY_BODY
-  })
-  
-  // Add enemy snakes
-  gameState.board.snakes.forEach(snake => {
-    if (snake.id !== gameState.you.id) {
-      board[snake.head.y][snake.head.x] = CELL.ENEMY_HEAD
-      snake.body.slice(1).forEach(segment => {
-        board[segment.y][segment.x] = CELL.ENEMY_BODY
-      })
-    }
-  })
-  
-  return board
+  return board;
 }
 
-function printBoard(board) {
-  const symbols = ['⬜', '🍎', '😎', '🟦', '👿', '🟥', '⬛', '⚠️']
-  console.log('╔' + '═'.repeat(board[0].length * 2) + '╗')
-  
-  for (let y = board.length - 1; y >= 0; y--) {
-    let row = board[y].map(cell => symbols[cell]).join(' ')
-    console.log('║' + row + '║')
+function printBoard(gameState, board) {
+  // Guard clauses for safety
+  if (!gameState || !gameState.board) {
+    console.log('Invalid game state for board printing');
+    return;
   }
-  
-  console.log('╚' + '═'.repeat(board[0].length * 2) + '╝')
+
+  if (!gameState.board.width || !gameState.board.height) {
+    console.log('Invalid board dimensions');
+    return;
+  }
+
+  if (!gameState.board.snakes || !Array.isArray(gameState.board.snakes)) {
+    console.log('Invalid snakes data');
+    return;
+  }
+
+  const width = gameState.board.width;
+  const height = gameState.board.height;
+
+  // Print top border
+  console.log('╔' + '══'.repeat(width) + '╗');
+
+  // Print board rows
+  for (let y = height - 1; y >= 0; y--) {
+    let row = '║';
+    for (let x = 0; x < width; x++) {
+      // Default to empty space
+      let cell = '⬜';
+
+      // Check for food
+      if (gameState.board.food && Array.isArray(gameState.board.food)) {
+        const hasFood = gameState.board.food.some(f => f.x === x && f.y === y);
+        if (hasFood) {
+          cell = '🍎';
+        }
+      }
+
+      // Check for snakes
+      gameState.board.snakes.forEach(snake => {
+        if (!snake || !snake.body || !Array.isArray(snake.body)) {
+          return;
+        }
+
+        // Check head position
+        if (snake.body[0] && snake.body[0].x === x && snake.body[0].y === y) {
+          cell = snake.id === gameState.you.id ? '😎' : '👿';
+        }
+        // Check body segments
+        else if (snake.body.some((segment, index) => 
+          index > 0 && segment && segment.x === x && segment.y === y
+        )) {
+          cell = snake.id === gameState.you.id ? '🟦' : '🟥';
+        }
+      });
+
+      row += cell + ' ';
+    }
+    row += '║';
+    console.log(row);
+  }
+
+  // Print bottom border
+  console.log('╚' + '══'.repeat(width) + '╝');
 }
 
 module.exports = {

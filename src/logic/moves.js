@@ -86,12 +86,20 @@ function getMoveResponse(gameState) {
     console.log('Health:', gameState.you.health)
     console.log('Length:', gameState.you.body.length)
     
-    const board = createGameBoard(gameState)
-    printBoard(gameState, board)
+    // Safe board creation and printing
+    try {
+      const board = createGameBoard(gameState)
+      if (board) {
+        printBoard(gameState, board)
+      }
+    } catch (boardError) {
+      console.error('Board visualization error:', boardError)
+      // Continue with move logic even if board printing fails
+    }
     
     // Get list of safe moves
     const safeMoves = getPossibleMoves(gameState, board)
-    console.log('Safe moves:', safeMoves)
+    console.log('Available safe moves:', safeMoves)
     
     if (safeMoves.length === 0) {
       console.log('NO SAFE MOVES AVAILABLE!')
