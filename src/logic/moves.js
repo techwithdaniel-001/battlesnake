@@ -94,9 +94,11 @@ function isSafeMove(pos, gameState, board) {
     )
     
     if (enemySnake) {
-      // Only safe if we're strictly longer (not equal)
+      // Allow head-on collisions if we're longer
       const isSafe = myLength > enemySnake.body.length
-      console.log(`Head collision possible with snake ${enemySnake.id}. Our length: ${myLength}, Enemy length: ${enemySnake.body.length}. Safe: ${isSafe}`)
+      if (isSafe) {
+        console.log(`Offensive: Engaging shorter snake ${enemySnake.id}`)
+      }
       return isSafe
     }
   }
@@ -235,31 +237,26 @@ function chooseMoveTowardTarget(head, target, safeMoves) {
 }
 
 function chooseSafestMove(safeMoves, gameState, board) {
-  console.log('\nEvaluating moves for safety...')
+  console.log('\nEvaluating offensive moves...')
   
   const moveScores = safeMoves.map(move => {
     const nextPos = getNextPosition(gameState.you.head, move)
     let score = 0
     
-    // Look ahead for space
+    // Basic space and food scores
     const spaceScore = evaluateAvailableSpace(nextPos, gameState, board)
-    score += spaceScore * 2  // Weight space heavily
-    console.log(`${move}: Space score = ${spaceScore}`)
-
-    // Check distance to food
+    score += spaceScore * 2
     const foodScore = evaluateFoodPosition(nextPos, gameState)
     score += foodScore
-    console.log(`${move}: Food score = ${foodScore}`)
 
-    // Check proximity to other snakes
-    const dangerScore = evaluateDangerZones(nextPos, gameState, board)
-    score -= dangerScore * 3  // Weight danger heavily
-    console.log(`${move}: Danger score = ${dangerScore}`)
+    // Offensive scoring
+    const offensiveScore = evaluateOffensiveMoves(nextPos, gameState, board)
+    score += offensiveScore * 3  // Weight offensive moves heavily
+    console.log(`${move}: Offensive score = ${offensiveScore}`)
 
     return { move, score }
   })
 
-  // Sort by score and pick the best move
   moveScores.sort((a, b) => b.score - a.score)
   console.log('\nMove scores:', moveScores)
   return moveScores[0].move
@@ -417,6 +414,80 @@ function isEmergencySafe(move, gameState, board) {
   // - Our own body
   // - Longer enemy snake heads
   return cell !== CELL.MY_BODY
+}
+
+function evaluateOffensiveMoves(pos, gameState, board) {
+  let score = 0
+  const myLength = gameState.you.body.length
+
+  gameState.board.snakes.forEach(snake => {
+    if (snake.id === gameState.you.id) return
+
+    // Head-on collision opportunity
+    if (isAdjacent(snake.head, pos)) {
+      if (myLength > snake.body.length) {
+        // Aggressive bonus for eliminating shorter snakes
+        score += 50 * (myLength - snake.body.length)
+        console.log(`Offensive opportunity: Head-on with shorter snake ${snake.id}`)
+      }
+    }
+
+    // Blocking opportunities
+    if (snake.body.length < myLength) {
+      // Check if we can block their path to food
+      const nearbyFood = findNearbyFood(snake.head, gameState)
+      if (nearbyFood && isBlockingPosition(pos, snake.head, nearbyFood)) {
+        score += 30
+        console.log(`Blocking opportunity: Cut off ${snake.id} from food`)
+      }
+
+      // Check if we can trap them
+      if (canTrapSnake(pos, snake, gameState, board)) {
+        score += 40
+        console.log(`Trapping opportunity: Can restrict ${snake.id}'s movement`)
+      }
+    }
+  })
+
+  return score
+}
+
+function findNearbyFood(pos, gameState) {
+  return gameState.board.food.reduce((closest, food) => {
+    const distance = Math.abs(food.x - pos.x) + Math.abs(food.y - pos.y)
+    if (!closest || distance < closest.distance) {
+      return { food, distance }
+    }
+    return closest
+  }, null)?.food
+}
+
+function isBlockingPosition(myPos, enemyHead, food) {
+  // Check if we're between enemy and their food
+  const enemyToFood = Math.abs(food.x - enemyHead.x) + Math.abs(food.y - enemyHead.y)
+  const myToFood = Math.abs(food.x - myPos.x) + Math.abs(food.y - myPos.y)
+  const enemyToMe = Math.abs(myPos.x - enemyHead.x) + Math.abs(myPos.y - enemyHead.y)
+  
+  return myToFood < enemyToFood && enemyToMe <= 2
+}
+
+function canTrapSnake(myPos, enemy, gameState, board) {
+  // Check if move reduces enemy's escape routes
+  const currentEscapes = countEscapeRoutes(enemy.head, gameState, board)
+  const futureEscapes = countEscapeRoutes(enemy.head, gameState, board, myPos)
+  
+  return futureEscapes < currentEscapes && futureEscapes <= 2
+}
+
+function countEscapeRoutes(pos, gameState, board, blockedPos = null) {
+  const moves = ['up', 'down', 'left', 'right']
+  return moves.filter(move => {
+    const nextPos = getNextPosition(pos, move)
+    if (blockedPos && nextPos.x === blockedPos.x && nextPos.y === blockedPos.y) {
+      return false
+    }
+    return isSafeMove(nextPos, gameState, board)
+  }).length
 }
 
 module.exports = {
