@@ -1,0 +1,80 @@
+{
+    "game": {"id": "comprehensive-test"},
+    "turn": 30,
+    "board": {
+      "height": 11,
+      "width": 11,
+      "food": [
+        {"x": 5, "y": 5},
+        {"x": 1, "y": 1},
+        {"x": 3, "y": 4},
+        {"x": 9, "y": 9}
+      ],
+      "snakes": [
+        {
+          "id": "you",
+          "name": "test-snake",
+          "health": 45,
+          "body": [
+            {"x": 3, "y": 3},
+            {"x": 3, "y": 2},
+            {"x": 3, "y": 1},
+            {"x": 4, "y": 1}
+          ],
+          "head": {"x": 3, "y": 3},
+          "length": 4
+        },
+        {
+          "id": "snake-1",
+          "name": "enemy-1",
+          "health": 100,
+          "body": [
+            {"x": 5, "y": 3},
+            {"x": 5, "y": 2},
+            {"x": 5, "y": 1},
+            {"x": 5, "y": 0},
+            {"x": 6, "y": 0}
+          ],
+          "head": {"x": 5, "y": 3},
+          "length": 5
+        },
+        {
+          "id": "snake-2",
+          "name": "enemy-2",
+          "health": 100,
+          "body": [
+            {"x": 4, "y": 5},
+            {"x": 4, "y": 6},
+            {"x": 4, "y": 7}
+          ],
+          "head": {"x": 4, "y": 5},
+          "length": 3
+        },
+        {
+          "id": "snake-3",
+          "name": "enemy-3",
+          "health": 100,
+          "body": [
+            {"x": 1, "y": 4},
+            {"x": 0, "y": 4},
+            {"x": 0, "y": 3}
+          ],
+          "head": {"x": 1, "y": 4},
+          "length": 3
+        }
+      ]
+    },
+    "you": {
+      "id": "you",
+      "name": "test-snake",
+      "health": 45,
+      "body": [
+        {"x": 3, "y": 3},
+        {"x": 3, "y": 2},
+        {"x": 3, "y": 1},
+        {"x": 4, "y": 1}
+      ],
+      "head": {"x": 3, "y": 3},
+      "length": 4
+    }
+  }
