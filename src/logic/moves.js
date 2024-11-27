@@ -170,29 +170,56 @@ function isOccupiedBySnake(pos, gameState) {
 
 function chooseSafestMove(safeMoves, gameState, board) {
   const moveScores = safeMoves.map(move => {
-    const nextPos = getNextPosition(gameState.you.head, move)
-    let score = 100  // Base score
+    const nextPos = getNextPosition(gameState.you.head, move);
+    let score = 100;  // Base score
     
-    // Space evaluation
-    const spaceScore = evaluateAvailableSpace(nextPos, gameState, board)
-    score += spaceScore * 2
+    // Analyze wall situation
+    const wallAnalysis = analyzeWallSituation(nextPos, gameState);
     
-    // Food evaluation
-    const foodScore = evaluateFoodPosition(nextPos, gameState)
-    if (needsFood(gameState)) {
-      score += foodScore * 2
+    // Smart wall scoring
+    if (wallAnalysis.isAgainstWall) {
+      // Being against wall is okay if we have escape paths
+      if (wallAnalysis.escapePaths >= 2) {
+        score -= 200; // Small penalty
+      } else {
+        score -= 800; // Big penalty for limited escape
+      }
+    } else if (wallAnalysis.isNearWall) {
+      // Near wall is fine if we can trap others
+      if (wallAnalysis.canTrapOthers) {
+        score += 300; // Bonus for tactical position
+      } else {
+        score -= 100; // Small penalty for being near wall
+      }
     }
-    
-    // Trapping evaluation
-    const trapScore = evaluateTrappingOpportunities(nextPos, gameState)
-    score += trapScore
-    
-    console.log(`${move}: space=${spaceScore}, food=${foodScore}, trap=${trapScore}, total=${score}`)
-    return { move, score }
-  })
 
-  moveScores.sort((a, b) => b.score - a.score)
-  return moveScores[0].move
+    // Space evaluation with escape paths
+    const spaceScore = evaluateAvailableSpace(nextPos, gameState, board);
+    score += spaceScore * wallAnalysis.escapePaths; // Weight by escape options
+
+    // Food evaluation considering wall position
+    const foodScore = evaluateFoodPosition(nextPos, gameState);
+    if (needsFood(gameState)) {
+      // Desperate for food - take more risks
+      if (gameState.you.health < 30) {
+        score += foodScore * 3;
+      } else {
+        score += foodScore * wallAnalysis.safetyScore;
+      }
+    }
+
+    // Trapping evaluation
+    if (wallAnalysis.canTrapOthers) {
+      const trapScore = evaluateTrappingOpportunities(nextPos, gameState);
+      score += trapScore * 2; // Double trap score if position is good
+    }
+
+    console.log(`${move}: safety=${wallAnalysis.safetyScore}, escapes=${wallAnalysis.escapePaths}, trap=${wallAnalysis.canTrapOthers}, total=${score}`);
+    return { move, score };
+  });
+
+  moveScores.sort((a, b) => b.score - a.score);
+  return moveScores[0].move;
 }
 
 function isNearWall(pos, gameState) {
@@ -585,6 +612,154 @@ function forcesEnemyToWall(pos, enemy, gameState) {
   })
   
   return safeMovesCount > 0 && wallMovesCount === safeMovesCount
+}
+
+// Improved wall analysis
+function analyzeWallSituation(pos, gameState) {
+  const result = {
+    isAgainstWall: false,
+    isNearWall: false,
+    escapePaths: 0,
+    canTrapOthers: false,
+    safetyScore: 0
+  };
+
+  // Check immediate wall contact
+  result.isAgainstWall = (pos.x === 0 || pos.x === gameState.board.width - 1 ||
+                         pos.y === 0 || pos.y === gameState.board.height - 1);
+  
+  // Check near wall (2 spaces)
+  result.isNearWall = (pos.x <= 1 || pos.x >= gameState.board.width - 2 ||
+                      pos.y <= 1 || pos.y >= gameState.board.height - 2);
+
+  // Count escape paths
+  const moves = ['up', 'down', 'left', 'right'];
+  moves.forEach(move => {
+    const nextPos = getNextPosition(pos, move);
+    if (isStrictlySafe(nextPos, gameState)) {
+      result.escapePaths++;
+    }
+  });
+
+  // Check if we can trap others against wall
+  const enemies = gameState.board.snakes.filter(s => s.id !== gameState.you.id);
+  enemies.forEach(enemy => {
+    if (canForceToWall(pos, enemy, gameState)) {
+      result.canTrapOthers = true;
+    }
+  });
+
+  // Calculate safety score
+  result.safetyScore = calculateSafetyScore(pos, result.escapePaths, gameState);
+
+  return result;
+}
+
+// New function to check if we can force enemy to wall
+function canForceToWall(ourPos, enemy, gameState) {
+  const enemyHead = enemy.head;
+  const moves = ['up', 'down', 'left', 'right'];
+  let safeMovesForEnemy = 0;
+  let wallMovesForEnemy = 0;
+
+  moves.forEach(move => {
+    const nextPos = getNextPosition(enemyHead, move);
+    if (isStrictlySafe(nextPos, gameState)) {
+      safeMovesForEnemy++;
+      if (isNearWall(nextPos, gameState)) {
+        wallMovesForEnemy++;
+      }
+    }
+  });
+
+  // If we can force them to only have wall moves
+  return safeMovesForEnemy > 0 && safeMovesForEnemy === wallMovesForEnemy;
+}
+
+// Calculate safety score based on position
+function calculateSafetyScore(pos, escapePaths, gameState) {
+  let score = escapePaths * 25; // Base score from escape paths
+
+  // Add bonus for tactical wall positions
+  if (isCornerAdjacent(pos, gameState)) {
+    score += 50; // Good for trapping
+  }
+
+  // Add bonus for positions that control space
+  if (isControlPosition(pos, gameState)) {
+    score += 75;
+  }
+
+  return score;
+}
+
+// Helper functions
+function isCornerAdjacent(pos, gameState) {
+  const corners = [
+    {x: 0, y: 0}, {x: 0, y: gameState.board.height-1},
+    {x: gameState.board.width-1, y: 0}, 
+    {x: gameState.board.width-1, y: gameState.board.height-1}
+  ];
+
+  return corners.some(corner => 
+    Math.abs(pos.x - corner.x) + Math.abs(pos.y - corner.y) === 1
+  );
+}
+
+function isControlPosition(pos, gameState) {
+  // Positions that control significant board space
+  const centerX = Math.floor(gameState.board.width / 2);
+  const centerY = Math.floor(gameState.board.height / 2);
+  
+  return Math.abs(pos.x - centerX) <= 2 && Math.abs(pos.y - centerY) <= 2;
+}
+
+// Add this at the top with other utility functions
+function isStrictlySafe(pos, gameState) {
+  // 1. Boundary check
+  if (!isWithinBounds(pos, gameState)) {
+    return false;
+  }
+
+  // 2. Self collision check
+  const selfCollision = gameState.you.body.some(segment => 
+    segment.x === pos.x && segment.y === pos.y
+  );
+  if (selfCollision) {
+    return false;
+  }
+
+  // 3. Other snakes collision check
+  const otherSnakeCollision = gameState.board.snakes.some(snake => {
+    if (snake.id === gameState.you.id) return false;
+    return snake.body.some(segment => 
+      segment.x === pos.x && segment.y === pos.y
+    );
+  });
+  if (otherSnakeCollision) {
+    return false;
+  }
+
+  // 4. Head-to-head collision check with larger or equal snakes
+  const dangerousHeadCollision = gameState.board.snakes.some(snake => {
+    if (snake.id === gameState.you.id) return false;
+    
+    // Only check snakes that are our size or larger
+    if (snake.length >= gameState.you.length) {
+      const possibleEnemyMoves = ['up', 'down', 'left', 'right'].map(move => 
+        getNextPosition(snake.head, move)
+      );
+      return possibleEnemyMoves.some(enemyPos => 
+        enemyPos.x === pos.x && enemyPos.y === pos.y
+      );
+    }
+    return false;
+  });
+  if (dangerousHeadCollision) {
+    return false;
+  }
+
+  return true;
 }
 
 module.exports = {
