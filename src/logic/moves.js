@@ -1,54 +1,43 @@
-const { getSafeMoves } = require('./survival')
-const { scoreMoves } = require('./scoring')
-const { shouldCoil } = require('./tactics')
+const DIRECTIONS = ['up', 'down', 'left', 'right']
 
 function getMoveResponse(gameState) {
-  // Check if we should coil
-  if (shouldCoil(gameState)) {
-    return getCoilMove(gameState)
-  }
-
-  // Get safe moves
-  const safeMoves = getSafeMoves(gameState)
+  const possibleMoves = [...DIRECTIONS]
+  const safeMoves = possibleMoves.filter(move => isSafeMove(gameState, move))
   
-  // If no safe moves, try emergency moves
-  if (safeMoves.length === 0) {
-    return getEmergencyMove(gameState)
-  }
-  
-  // Score and sort moves
-  const scoredMoves = scoreMoves(gameState, safeMoves)
-  
-  // Return highest scored move
-  return scoredMoves[0].move
+  if (safeMoves.length === 0) return 'down'
+  return safeMoves[Math.floor(Math.random() * safeMoves.length)]
 }
 
-function getCoilMove(gameState) {
-  const head = gameState.you.head
-  const neck = gameState.you.body[1]
+function isSafeMove(gameState, move) {
+  const head = gameState.you.body[0]
+  const nextPosition = getNextPosition(head, move)
   
-  // Try to move in a way that brings head closer to tail
-  const tail = gameState.you.body[gameState.you.body.length - 1]
-  const possibleMoves = getSafeMoves(gameState)
+  // Don't hit walls
+  if (nextPosition.x < 0) return false
+  if (nextPosition.x >= gameState.board.width) return false
+  if (nextPosition.y < 0) return false
+  if (nextPosition.y >= gameState.board.height) return false
   
-  return possibleMoves.reduce((best, move) => {
-    const nextPos = getNextPosition(head, move)
-    const distanceToTail = getDistance(nextPos, tail)
-    
-    if (!best || distanceToTail < best.distance) {
-      return { move, distance: distanceToTail }
+  // Don't hit snakes (including self)
+  const snakes = gameState.board.snakes
+  for (let snake of snakes) {
+    for (let bodyPart of snake.body) {
+      if (nextPosition.x === bodyPart.x && nextPosition.y === bodyPart.y) {
+        return false
+      }
     }
-    return best
-  }, null)?.move || possibleMoves[0]
+  }
+  
+  return true
 }
 
-function getEmergencyMove(gameState) {
-  // Try to find any move that doesn't result in immediate death
-  const head = gameState.you.head
-  return Object.values(DIRECTIONS).find(move => {
-    const nextPos = getNextPosition(head, move)
-    return !willHitWall(nextPos, gameState.board)
-  }) || DIRECTIONS.UP // Last resort
+function getNextPosition(head, move) {
+  switch(move) {
+    case 'up': return { x: head.x, y: head.y + 1 }
+    case 'down': return { x: head.x, y: head.y - 1 }
+    case 'left': return { x: head.x - 1, y: head.y }
+    case 'right': return { x: head.x + 1, y: head.y }
+  }
 }
 
 module.exports = {
