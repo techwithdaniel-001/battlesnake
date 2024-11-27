@@ -12,13 +12,8 @@ function handleIndex(req, res) {
 }
 
 function handleStart(req, res) {
-  try {
-    console.log("GAME START:", req.body)
-    res.json({})
-  } catch (error) {
-    console.error("Start Error:", error)
-    res.json({})
-  }
+  console.log("GAME START")
+  res.json({})
 }
 
 function handleMove(req, res) {
@@ -29,22 +24,16 @@ function handleMove(req, res) {
     const move = getMoveResponse(gameState)
     console.log(`Moving ${move}`)
     
-    res.json({ move })
+    res.json({ move: move })
   } catch (error) {
     console.error("Move Error:", error)
-    // Default to moving right if there's an error
     res.json({ move: "right" })
   }
 }
 
 function handleEnd(req, res) {
-  try {
-    console.log("GAME OVER:", req.body)
-    res.json({})
-  } catch (error) {
-    console.error("End Error:", error)
-    res.json({})
-  }
+  console.log("GAME OVER")
+  res.json({})
 }
 
 module.exports = {

@@ -4,13 +4,12 @@ const { handleIndex, handleStart, handleMove, handleEnd } = require('./src/route
 const app = express()
 app.use(express.json())
 
-// Debug middleware to log all requests
+// Debug middleware
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.path}`, req.body)
   next()
 })
 
-// Battlesnake API endpoints
 app.get('/', handleIndex)
 app.post('/start', handleStart)
 app.post('/move', handleMove)
