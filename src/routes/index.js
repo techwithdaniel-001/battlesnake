@@ -6,17 +6,20 @@ const HEALTH_THRESHOLD = 50
 
 // Index handler
 function handleIndex(req, res) {
+  const timestamp = new Date().toISOString();
   const battlesnakeInfo = {
     apiversion: "1",
     author: "ebube12345",
     color: "#FF0000",
     head: "silly",
     tail: "bolt",
-    version: "v2.1 - Trapping Update"
-  }
+    version: "v2.1 - Trapping Update",
+    lastChecked: timestamp,
+    status: "ACTIVE - Ready for battle! 🐍"
+  };
   
-  console.log('Battlesnake Info:', battlesnakeInfo);
-  res.json(battlesnakeInfo)
+  console.log(`[${timestamp}] Snake Status Check - Ready for battle! 🐍`);
+  res.json(battlesnakeInfo);
 }
 
 // Start handler
