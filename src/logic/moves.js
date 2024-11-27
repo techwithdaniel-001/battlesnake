@@ -1,99 +1,19 @@
-const { DIRECTIONS } = require('../utils/constants')
-const { CELL, createGameBoard, printBoard } = require('../utils/board')
-const { findSafestPath } = require('./pathfinding');
+const PriorityQueue = require('./PriorityQueue');
 
-// Add these utility functions at the TOP of the file, before any other functions
-function getDirection(from, to) {
-  if (!from || !to) return null
-  if (to.y > from.y) return 'up'
-  if (to.y < from.y) return 'down'
-  if (to.x < from.x) return 'left'
-  if (to.x > from.x) return 'right'
-  return null
+// Utility functions
+function getNextPosition(currentPos, move) {
+    switch(move.toLowerCase()) {
+        case 'up': return { x: currentPos.x, y: currentPos.y + 1 };
+        case 'down': return { x: currentPos.x, y: currentPos.y - 1 };
+        case 'left': return { x: currentPos.x - 1, y: currentPos.y };
+        case 'right': return { x: currentPos.x + 1, y: currentPos.y };
+        default: return null;
+    }
 }
 
-function getNextPosition(head, move) {
-  if (!head) {
-    console.log("WARNING: Invalid head position provided to getNextPosition");
-    return null;
-  }
-  
-  switch(move) {
-    case 'up': return { x: head.x, y: head.y + 1 };
-    case 'down': return { x: head.x, y: head.y - 1 };
-    case 'left': return { x: head.x - 1, y: head.y };
-    case 'right': return { x: head.x + 1, y: head.y };
-    default: 
-      console.log("WARNING: Invalid move provided:", move);
-      return null;
-  }
-}
-
-function shouldCoil(gameState) {
-  return gameState.you.health > 50 && 
-         gameState.you.body.length > 4 &&
-         !isNearbyThreat(gameState) &&
-         !needsFood(gameState)
-}
-
-function isGoodCoilTurn(currentDir, newDir) {
-  const validTurns = {
-    'up': ['right', 'left'],
-    'right': ['down', 'up'],
-    'down': ['left', 'right'],
-    'left': ['up', 'down']
-  }
-  return validTurns[currentDir] && validTurns[currentDir].includes(newDir)
-}
-
-function isCircularPattern(pos, body) {
-  if (body.length < 4) return false
-  
-  const head = body[0]
-  const neck = body[1]
-  const currentDir = getDirection(neck, head)
-  const newDir = getDirection(head, pos)
-  
-  return currentDir && newDir && isGoodCoilTurn(currentDir, newDir)
-}
-
-function evaluateCoilingMove(pos, gameState) {
-  let score = 0
-  const tail = gameState.you.body[gameState.you.body.length - 1]
-  
-  const distanceToTail = Math.abs(pos.x - tail.x) + Math.abs(pos.y - tail.y)
-  
-  if (distanceToTail === 2) score += 75
-  else if (distanceToTail === 3) score += 50
-  else if (distanceToTail === 1) score += 25
-
-  if (isCircularPattern(pos, gameState.you.body)) {
-    score += 50
-    console.log('Maintaining circular pattern')
-  }
-
-  return score
-}
-
-// Add this function near the top with other utility functions
-function getPossibleEnemyMoves(head) {
-  if (!head) return []
-  
-  return [
-    { x: head.x, y: head.y + 1 },  // up
-    { x: head.x, y: head.y - 1 },  // down
-    { x: head.x - 1, y: head.y },  // left
-    { x: head.x + 1, y: head.y }   // right
-  ]
-}
-
-// Add these utility functions at the top of the file
 function isWithinBounds(pos, gameState) {
-    return pos && 
-           pos.x >= 0 && 
-           pos.x < gameState.board.width && 
-           pos.y >= 0 && 
-           pos.y < gameState.board.height;
+    return pos.x >= 0 && pos.x < gameState.board.width &&
+           pos.y >= 0 && pos.y < gameState.board.height;
 }
 
 function isSelfCollision(pos, gameState) {
@@ -102,348 +22,20 @@ function isSelfCollision(pos, gameState) {
     );
 }
 
-function getNextPosition(currentPos, move) {
-    if (!currentPos) return null;
+function isValidPosition(pos, gameState) {
+    if (!isWithinBounds(pos, gameState)) return false;
+    if (isSelfCollision(pos, gameState)) return false;
     
-    switch(move.toLowerCase()) {
-        case 'up':
-            return { x: currentPos.x, y: currentPos.y + 1 };
-        case 'down':
-            return { x: currentPos.x, y: currentPos.y - 1 };
-        case 'left':
-            return { x: currentPos.x - 1, y: currentPos.y };
-        case 'right':
-            return { x: currentPos.x + 1, y: currentPos.y };
-        default:
-            console.error("Invalid move:", move);
-            return null;
-    }
-}
-
-function isSnakeCollision(pos, gameState) {
-    return gameState.board.snakes.some(snake => 
+    // Check for any snake collision
+    return !gameState.board.snakes.some(snake => 
         snake.body.some(segment => 
             segment.x === pos.x && segment.y === pos.y
         )
     );
 }
 
-function isPotentialHeadCollision(pos, gameState) {
-    return gameState.board.snakes.some(snake => {
-        if (snake.id === gameState.you.id) return false;
-        
-        const distanceToHead = Math.abs(pos.x - snake.head.x) + 
-                             Math.abs(pos.y - snake.head.y);
-                             
-        return distanceToHead <= 1 && snake.length >= gameState.you.length;
-    });
-}
-
-// Main move response function
-function getMoveResponse(gameState) {
-    try {
-        const head = gameState.you.head;
-        console.log("\n🔍 Current position:", head);
-
-        // First, evaluate all possible paths using A*
-        const moveScores = evaluateAllPaths(gameState);
-        console.log("Path analysis:", moveScores);
-
-        // If we have any safe moves with good paths, use the best one
-        const bestMove = chooseBestPath(moveScores);
-        if (bestMove) {
-            console.log("✅ Choosing best path:", bestMove);
-            return { move: bestMove };
-        }
-
-        // Fallback to emergency move
-        return { move: findEmergencyMove(gameState) };
-    } catch (error) {
-        console.error("Error in getMoveResponse:", error);
-        return { move: findEmergencyMove(gameState) };
-    }
-}
-
-function evaluateAllPaths(gameState) {
-    const moves = ['up', 'down', 'left', 'right'];
-    return moves.map(move => {
-        const nextPos = getNextPosition(gameState.you.head, move);
-        if (!isValidMove(nextPos, gameState)) {
-            return { move, score: -Infinity, paths: [] };
-        }
-
-        // Look ahead several moves using A*
-        const pathAnalysis = analyzePathsFromPosition(nextPos, gameState);
-        return {
-            move,
-            score: pathAnalysis.score,
-            paths: pathAnalysis.paths
-        };
-    });
-}
-
-function analyzePathsFromPosition(startPos, gameState, depth = 3) {
-    const paths = [];
-    let totalScore = 0;
-
-    // Initialize the priority queue for A*
-    const openSet = new PriorityQueue();
-    const closedSet = new Set();
-    
-    // Start from current position
-    openSet.enqueue({
-        pos: startPos,
-        path: [],
-        gScore: 0,
-        fScore: heuristic(startPos, gameState)
-    }, 0);
-
-    while (!openSet.isEmpty() && paths.length < 5) {
-        const current = openSet.dequeue();
-        const posKey = `${current.pos.x},${current.pos.y}`;
-
-        if (closedSet.has(posKey)) continue;
-        closedSet.add(posKey);
-
-        // Found a valid path
-        if (current.path.length >= depth) {
-            paths.push(current.path);
-            totalScore += evaluatePath(current.path, gameState);
-            continue;
-        }
-
-        // Explore neighbors
-        const neighbors = getValidNeighbors(current.pos, gameState);
-        for (const neighbor of neighbors) {
-            const neighborKey = `${neighbor.x},${neighbor.y}`;
-            if (closedSet.has(neighborKey)) continue;
-
-            const gScore = current.gScore + 1;
-            const fScore = gScore + heuristic(neighbor, gameState);
-
-            openSet.enqueue({
-                pos: neighbor,
-                path: [...current.path, neighbor],
-                gScore: gScore,
-                fScore: fScore
-            }, fScore);
-        }
-    }
-
-    return {
-        score: paths.length > 0 ? totalScore / paths.length : -Infinity,
-        paths: paths
-    };
-}
-
-function heuristic(pos, gameState) {
-    let score = 0;
-
-    // Prefer positions away from walls
-    score -= (Math.min(pos.x, gameState.board.width - 1 - pos.x) + 
-             Math.min(pos.y, gameState.board.height - 1 - pos.y)) * 0.5;
-
-    // Avoid enemy snake territories
-    gameState.board.snakes.forEach(snake => {
-        if (snake.id === gameState.you.id) return;
-        
-        const distanceToHead = Math.abs(pos.x - snake.head.x) + 
-                             Math.abs(pos.y - snake.head.y);
-        if (snake.length >= gameState.you.length) {
-            score -= Math.max(0, 5 - distanceToHead) * 2;
-        }
-    });
-
-    // Prefer moves with more open space
-    const openSpace = countAvailableSpace(pos, gameState);
-    score += openSpace * 0.5;
-
-    return score;
-}
-
-class PriorityQueue {
-    constructor() {
-        this.values = [];
-    }
-
-    enqueue(val, priority) {
-        this.values.push({ val, priority });
-        this.sort();
-    }
-
-    dequeue() {
-        return this.values.shift().val;
-    }
-
-    sort() {
-        this.values.sort((a, b) => a.priority - b.priority);
-    }
-
-    isEmpty() {
-        return this.values.length === 0;
-    }
-}
-
-function evaluatePath(path, gameState) {
-    let score = 100;
-
-    // Penalize paths that get too close to enemy snakes
-    path.forEach((pos, index) => {
-        gameState.board.snakes.forEach(snake => {
-            if (snake.id === gameState.you.id) return;
-            
-            const distanceToHead = Math.abs(pos.x - snake.head.x) + 
-                                 Math.abs(pos.y - snake.head.y);
-            if (snake.length >= gameState.you.length && distanceToHead <= 2) {
-                score -= (50 / (index + 1));  // Penalize less for positions further in the future
-            }
-        });
-    });
-
-    // Reward paths that maintain open space
-    const endPos = path[path.length - 1];
-    const finalSpace = countAvailableSpace(endPos, gameState);
-    score += finalSpace * 10;
-
-    return score;
-}
-
-function chooseBestPath(moveScores) {
-    // Sort by score
-    moveScores.sort((a, b) => b.score - a.score);
-    
-    // Get best non-deadly move
-    const bestMove = moveScores.find(m => m.score > -Infinity);
-    return bestMove ? bestMove.move : null;
-}
-
-function findEmergencyMove(gameState) {
-    console.log("🆘 Emergency move needed!");
-    
-    const head = gameState.you.head;
-    const moves = ['up', 'down', 'left', 'right'];
-    
-    // Analyze each move's death type
-    const moveAnalysis = moves.map(move => {
-        const nextPos = getNextPosition(head, move);
-        let deathType = 'none';
-        let certainDeath = false;
-        
-        // Check for certain death scenarios
-        if (!isWithinBounds(nextPos, gameState)) {
-            deathType = 'wall';
-            certainDeath = true;
-        }
-        else if (isSelfCollision(nextPos, gameState)) {
-            deathType = 'self';
-            certainDeath = true;
-        }
-        else if (hasEqualOrLargerSnakeHeadCollision(nextPos, gameState)) {
-            deathType = 'head-collision';
-            certainDeath = true;
-        }
-        
-        return { move, deathType, certainDeath };
-    });
-    
-    console.log("Emergency analysis:", moveAnalysis);
-    
-    // Look for any moves that aren't certain death
-    const possibleMoves = moveAnalysis.filter(m => !m.certainDeath);
-    
-    if (possibleMoves.length > 0) {
-        const chosen = possibleMoves[0].move;
-        console.log(`Found non-certain death move: ${chosen}`);
-        return chosen;
-    }
-    
-    // If all moves lead to death, log and pick the least embarrassing one
-    console.log("💀 All moves lead to certain death!");
-    return 'down';  // At this point, direction doesn't matter
-}
-
-function hasEqualOrLargerSnakeHeadCollision(pos, gameState) {
-    return gameState.board.snakes.some(snake => {
-        if (snake.id === gameState.you.id) return false;
-        
-        // Get all possible next positions for enemy snake
-        const enemyMoves = ['up', 'down', 'left', 'right']
-            .map(move => getNextPosition(snake.head, move))
-            .filter(p => p && isWithinBounds(p, gameState));
-            
-        // If snake is equal or larger, any head collision is deadly
-        if (snake.length >= gameState.you.length) {
-            return enemyMoves.some(enemyNext => 
-                enemyNext.x === pos.x && enemyNext.y === pos.y
-            );
-        }
-        
-        return false;
-    });
-}
-
-function isValidMove(pos, gameState) {
-    if (!pos) return false;
-    
-    // Check bounds
-    if (!isWithinBounds(pos, gameState)) return false;
-    
-    // Check self collision
-    if (isSelfCollision(pos, gameState)) return false;
-    
-    return true;
-}
-
-function isBasicallySafe(pos, gameState) {
-    if (!isValidMove(pos, gameState)) return false;
-    
-    // Check for immediate head collisions with larger/equal snakes
-    const dangerousHeadCollision = gameState.board.snakes.some(snake => {
-        if (snake.id === gameState.you.id) return false;
-        
-        const distanceToHead = Math.abs(pos.x - snake.head.x) + Math.abs(pos.y - snake.head.y);
-        return distanceToHead <= 1 && snake.length >= gameState.you.length;
-    });
-    
-    return !dangerousHeadCollision;
-}
-
-function analyzeRisks(pos, gameState) {
-    let dangerLevel = 0;
-    const details = [];
-
-    // Check space availability first
-    const spaceCount = countAvailableSpace(pos, gameState);
-    if (spaceCount <= 1) {
-        dangerLevel += 1000;
-        details.push(`Very limited space: ${spaceCount}`);
-    }
-    
-    // Check proximity to enemy snakes
-    gameState.board.snakes.forEach(snake => {
-        if (snake.id === gameState.you.id) return;
-        
-        const distanceToHead = Math.abs(pos.x - snake.head.x) + Math.abs(pos.y - snake.head.y);
-        
-        // Even being near a larger/equal snake is dangerous
-        if (snake.length >= gameState.you.length) {
-            if (distanceToHead <= 2) {
-                dangerLevel += 500;
-                details.push(`Too close to ${snake.length}-length snake`);
-            }
-        }
-    });
-
-    // Prefer moves with more space
-    dangerLevel -= spaceCount * 50;
-    details.push(`Available space: ${spaceCount}`);
-
-    return { dangerLevel, details };
-}
-
 function countAvailableSpace(pos, gameState) {
     if (!pos) return 0;
-    
     const visited = new Set();
     const queue = [pos];
     let space = 0;
@@ -454,13 +46,12 @@ function countAvailableSpace(pos, gameState) {
         
         if (visited.has(key)) continue;
         visited.add(key);
-        
         space++;
         
-        // Check all adjacent squares
         ['up', 'down', 'left', 'right'].forEach(move => {
             const next = getNextPosition(current, move);
-            if (next && isValidMove(next, gameState) && !visited.has(`${next.x},${next.y}`)) {
+            if (next && isValidPosition(next, gameState) && 
+                !visited.has(`${next.x},${next.y}`)) {
                 queue.push(next);
             }
         });
@@ -469,73 +60,332 @@ function countAvailableSpace(pos, gameState) {
     return space;
 }
 
-function findNearestFood(gameState) {
-    const head = gameState.you.head;
-    if (!gameState.board.food.length) return null;
+function findEscapeRoutes(gameState) {
+    const moves = ['up', 'down', 'left', 'right'];
+    return moves.map(move => {
+        const nextPos = getNextPosition(gameState.you.head, move);
+        if (!isValidPosition(nextPos, gameState)) {
+            return { move, score: -Infinity, paths: [] };
+        }
+
+        const spaceEval = evaluateSpaceValue(nextPos, gameState);
+        const score = calculateMoveScore(spaceEval, nextPos, gameState);
+        
+        return {
+            move,
+            score,
+            spaceEval,
+            paths: [[nextPos]]
+        };
+    });
+}
+
+function calculateSnakeProximity(pos, gameState) {
+    let proximity = 0;
+    gameState.board.snakes.forEach(snake => {
+        if (snake.id === gameState.you.id) return;
+        
+        const distanceToHead = Math.abs(pos.x - snake.head.x) + 
+                             Math.abs(pos.y - snake.head.y);
+        if (distanceToHead <= 2) {
+            proximity += (3 - distanceToHead) * 50;
+        }
+    });
+    return proximity;
+}
+
+function findEmergencyMove(gameState) {
+    console.log("🆘 Emergency move needed!");
+    const moves = ['up', 'down', 'left', 'right'];
     
-    return gameState.board.food
-        .map(food => ({
-            pos: food,
-            distance: Math.abs(head.x - food.x) + Math.abs(head.y - food.y)
-        }))
-        .sort((a, b) => a.distance - b.distance)[0]?.pos;
+    const analysis = moves.map(move => {
+        const nextPos = getNextPosition(gameState.you.head, move);
+        const deathType = getDeathType(nextPos, gameState);
+        return {
+            move,
+            deathType,
+            certainDeath: deathType !== 'none'
+        };
+    });
+    
+    console.log("Emergency analysis:", analysis);
+    
+    // Find any non-deadly moves
+    const safeMoves = analysis.filter(m => !m.certainDeath);
+    if (safeMoves.length > 0) {
+        console.log("Found non-certain death move:", safeMoves[0].move);
+        return safeMoves[0].move;
+    }
+    
+    console.log("⚠️ All moves seem deadly! Defaulting to down");
+    return 'down';
+}
+
+function getDeathType(pos, gameState) {
+    if (!isWithinBounds(pos, gameState)) return 'wall';
+    if (isSelfCollision(pos, gameState)) return 'self';
+    if (isSnakeCollision(pos, gameState)) return 'snake';
+    return 'none';
+}
+
+function isSnakeCollision(pos, gameState) {
+    return gameState.board.snakes.some(snake => 
+        snake.body.some(segment => 
+            segment.x === pos.x && segment.y === pos.y
+        )
+    );
+}
+
+function getMoveResponse(gameState) {
+    try {
+        const head = gameState.you.head;
+        console.log("\n🔍 Current position:", head);
+
+        const pathAnalysis = findEscapeRoutes(gameState);
+        console.log("🛣 Flood-fill analysis:");
+        pathAnalysis.forEach(p => {
+            console.log(`${p.move.toUpperCase()}:
+                Score: ${p.score}
+                Space: ${p.spaceEval?.accessibleSpace || 0}
+                Dead Ends: ${p.spaceEval?.deadEnds || 0}
+                Escape Routes: ${p.spaceEval?.escapeRoutes || 0}
+                Distance to Food: ${p.spaceEval?.nearestFood || 'N/A'}
+                Wall Distance: ${p.spaceEval?.distanceToWall || 'N/A'}
+            `);
+        });
+
+        const safeMoves = pathAnalysis.filter(p => p.score > -Infinity);
+        
+        if (safeMoves.length > 0) {
+            safeMoves.sort((a, b) => b.score - a.score);
+            const bestMove = safeMoves[0].move;
+            console.log(`✅ Choosing best move: ${bestMove} (score: ${safeMoves[0].score})`);
+            console.log(`Reasoning:
+                - Available Space: ${safeMoves[0].spaceEval?.accessibleSpace}
+                - Escape Routes: ${safeMoves[0].spaceEval?.escapeRoutes}
+                - Dead End Risk: ${safeMoves[0].spaceEval?.deadEnds}
+            `);
+            return { move: bestMove };
+        }
+
+        console.log("⚠️ No safe moves found, trying emergency move");
+        return { move: findEmergencyMove(gameState) };
+
+    } catch (error) {
+        console.error("Error in getMoveResponse:", error);
+        return { move: findEmergencyMove(gameState) };
+    }
+}
+
+// Add these new flood-fill functions
+
+function evaluateSpaceValue(pos, gameState) {
+    const floodFillResult = floodFill(pos, gameState);
+    return {
+        accessibleSpace: floodFillResult.spaceCount,
+        deadEnds: floodFillResult.deadEnds,
+        escapeRoutes: floodFillResult.escapeRoutes,
+        nearestFood: floodFillResult.nearestFood,
+        distanceToWall: floodFillResult.distanceToWall
+    };
+}
+
+function floodFill(startPos, gameState) {
+    const visited = new Set();
+    const queue = [{pos: startPos, depth: 0}];
+    let spaceCount = 0;
+    let deadEnds = 0;
+    let escapeRoutes = 0;
+    let nearestFood = Infinity;
+    let distanceToWall = Infinity;
+    
+    // Track visited positions with their depths
+    const depthMap = new Map();
+    
+    while (queue.length > 0) {
+        const {pos, depth} = queue.shift();
+        const key = `${pos.x},${pos.y}`;
+        
+        if (visited.has(key)) continue;
+        visited.add(key);
+        depthMap.set(key, depth);
+        
+        spaceCount++;
+        
+        // Check for food
+        if (isFood(pos, gameState)) {
+            nearestFood = Math.min(nearestFood, depth);
+        }
+        
+        // Get valid neighbors
+        const neighbors = getValidNeighbors(pos, gameState);
+        
+        // Check if this is a dead end
+        if (neighbors.length === 1 && depth > 0) {
+            deadEnds++;
+        }
+        
+        // Check for escape routes (spaces with multiple paths)
+        if (neighbors.length > 2) {
+            escapeRoutes++;
+        }
+        
+        // Track distance to walls
+        if (isNearWall(pos, gameState)) {
+            distanceToWall = Math.min(distanceToWall, depth);
+        }
+        
+        // Add valid neighbors to queue
+        for (const neighbor of neighbors) {
+            const neighborKey = `${neighbor.x},${neighbor.y}`;
+            if (!visited.has(neighborKey)) {
+                queue.push({pos: neighbor, depth: depth + 1});
+            }
+        }
+    }
+    
+    // Calculate space quality metrics
+    const avgDepth = Array.from(depthMap.values()).reduce((a, b) => a + b, 0) / depthMap.size;
+    
+    return {
+        spaceCount,
+        deadEnds,
+        escapeRoutes,
+        nearestFood,
+        distanceToWall,
+        avgDepth,
+        visitedPositions: visited
+    };
 }
 
 function getValidNeighbors(pos, gameState) {
     const neighbors = [];
     const directions = [
-        { x: 0, y: 1 },  // up
-        { x: 0, y: -1 }, // down
-        { x: -1, y: 0 }, // left
-        { x: 1, y: 0 }   // right
+        {x: 0, y: 1},  // up
+        {x: 0, y: -1}, // down
+        {x: -1, y: 0}, // left
+        {x: 1, y: 0}   // right
     ];
-
+    
     for (const dir of directions) {
         const neighbor = {
             x: pos.x + dir.x,
             y: pos.y + dir.y
         };
-
-        // Check if this neighbor is valid
+        
         if (isValidPosition(neighbor, gameState)) {
             neighbors.push(neighbor);
         }
     }
-
+    
     return neighbors;
 }
 
-function isValidPosition(pos, gameState) {
-    // Basic bounds check
-    if (!isWithinBounds(pos, gameState)) return false;
-
-    // Check for self collision
-    if (isSelfCollision(pos, gameState)) return false;
-
-    // Check for immediate head-to-head with equal/larger snakes
-    const hasHeadDanger = gameState.board.snakes.some(snake => {
-        if (snake.id === gameState.you.id) return false;
-        
-        const distanceToHead = Math.abs(pos.x - snake.head.x) + 
-                             Math.abs(pos.y - snake.head.y);
-        
-        return distanceToHead <= 1 && snake.length >= gameState.you.length;
-    });
-
-    if (hasHeadDanger) return false;
-
-    // Check for other snake bodies
-    const hasSnakeCollision = gameState.board.snakes.some(snake => 
-        snake.body.some(segment => 
-            segment.x === pos.x && segment.y === pos.y
-        )
+function isFood(pos, gameState) {
+    return gameState.board.food.some(food => 
+        food.x === pos.x && food.y === pos.y
     );
-
-    if (hasSnakeCollision) return false;
-
-    return true;
 }
 
+function isNearWall(pos, gameState) {
+    return pos.x === 0 || 
+           pos.x === gameState.board.width - 1 || 
+           pos.y === 0 || 
+           pos.y === gameState.board.height - 1;
+}
+
+function calculateMoveScore(spaceEval, pos, gameState) {
+    let score = 0;
+    
+    // Space availability (most important)
+    score += spaceEval.accessibleSpace * 100;
+    
+    // Penalize dead ends heavily
+    score -= spaceEval.deadEnds * 200;
+    
+    // Reward escape routes
+    score += spaceEval.escapeRoutes * 150;
+    
+    // Consider food if health is low
+    if (gameState.you.health < 50 && spaceEval.nearestFood !== Infinity) {
+        score += (100 - spaceEval.nearestFood) * 2;
+    }
+    
+    // Slight penalty for being near walls
+    score -= Math.max(0, 10 - spaceEval.distanceToWall) * 10;
+    
+    // Consider snake proximity
+    const snakeProximity = calculateSnakeProximity(pos, gameState);
+    score -= snakeProximity * 50;
+    
+    return score;
+}
+
+// Core Pathfinding Strategy
+function findAllSafePaths(startPos, gameState, depth = 4) {  // Looks 4 moves ahead
+    const paths = [];
+    const visited = new Set();
+    const queue = new PriorityQueue();
+    
+    queue.enqueue({
+        pos: startPos,
+        path: [startPos],
+        cost: 0
+    }, 0);
+
+    while (!queue.isEmpty() && paths.length < 10) {  // Find up to 10 best paths
+        const current = queue.dequeue();
+        
+        // Found a valid path of desired length
+        if (current.path.length >= depth) {
+            paths.push(current.path);
+            continue;
+        }
+
+        // Explore neighbors using A* heuristics
+        const neighbors = getValidNeighbors(current.pos, gameState);
+        for (const neighbor of neighbors) {
+            const priority = calculatePathPriority(newPath, gameState);
+            queue.enqueue({
+                pos: neighbor,
+                path: [...current.path, neighbor],
+                cost: current.cost + 1
+            }, priority);
+        }
+    }
+
+    return paths;
+}
+
+// Path Priority Calculation
+function calculatePathPriority(path, gameState) {
+    let priority = 0;
+    const endPos = path[path.length - 1];
+
+    // 1. Snake Distance Priority
+    gameState.board.snakes.forEach(snake => {
+        const distanceToHead = Math.abs(endPos.x - snake.head.x) + 
+                             Math.abs(endPos.y - snake.head.y);
+        priority += Math.min(distanceToHead * 10, 50);  // Max 50 points for distance
+    });
+
+    // 2. Open Space Priority
+    const openSpace = countAvailableSpace(endPos, gameState);
+    priority += openSpace * 5;  // More open space = better
+
+    // 3. Wall Distance Priority
+    const wallDistance = Math.min(
+        endPos.x,
+        gameState.board.width - 1 - endPos.x,
+        endPos.y,
+        gameState.board.height - 1 - endPos.y
+    );
+    priority += wallDistance * 2;  // Being away from walls is good
+
+    return -priority;  // Lower priority = better path
+}
+
+// Export after all functions are defined
 module.exports = {
     getMoveResponse
-}; 
+};
