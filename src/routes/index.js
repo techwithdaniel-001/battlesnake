@@ -1,149 +1,119 @@
-const { getMoveResponse } = require('../logic/moves')
-const board = require('../utils/board')
+const moves = require('../logic/moves');
 
-// Add at the top with other constants
-const HEALTH_THRESHOLD = 50
-
-// Index handler
 function handleIndex(req, res) {
-  const timestamp = new Date().toISOString();
   const battlesnakeInfo = {
     apiversion: "1",
     author: "ebube12345",
     color: "#FF0000",
     head: "silly",
     tail: "bolt",
-    version: "v2.1 - Trapping Update",
-    lastChecked: timestamp,
-    status: "ACTIVE - Ready for battle! 🐍"
+    version: "v2.1 - Test Mode"
   };
-  
-  console.log(`[${timestamp}] Snake Status Check - Ready for battle! 🐍`);
   res.json(battlesnakeInfo);
 }
 
-// Start handler
 function handleStart(req, res) {
-  try {
-    const gameState = req.body
-    console.log('\n=== GAME START ===')
-    console.log('Game ID:', gameState.game.id)
-    console.log('Board Size:', gameState.board.width, 'x', gameState.board.height)
-    console.log('My Snake ID:', gameState.you.id)
-    res.json({})
-  } catch (error) {
-    console.error('Start Error:', error)
-    res.json({})
-  }
+  res.json({});
 }
 
-// Move handler
 function handleMove(req, res) {
   try {
     const gameState = req.body;
     
-    // Log detailed game state
-    console.log('\n=== MOVE REQUEST ===');
-    console.log('Turn:', gameState.turn);
-    console.log('You:', {
-      head: gameState.you.head,
-      length: gameState.you.length,
-      health: gameState.you.health
-    });
-    console.log('Board:', {
-      width: gameState.board.width,
-      height: gameState.board.height,
-      food: gameState.board.food.length,
-      snakes: gameState.board.snakes.length
-    });
-
-    const move = getMoveResponse(gameState);
+    console.log('\n=== TEST SCENARIO ===');
+    console.log('Your Length:', gameState.you.length);
+    console.log('Your Position:', gameState.you.head);
     
-    // Log move decision
-    console.log('MOVE CHOICE:', {
-      move: move.move,
-      nextHead: getNextPosition(gameState.you.head, move.move)
+    // Log all snakes and their lengths
+    gameState.board.snakes.forEach(snake => {
+      if (snake.id !== gameState.you.id) {
+        console.log(`Enemy Snake Length: ${snake.length}, Position: ${JSON.stringify(snake.head)}`);
+      }
     });
 
+    const move = moves.getMoveResponse(gameState);
+    
+    // Simulate next position
+    const nextPos = getNextPosition(gameState.you.head, move.move);
+    
+    // Check if move would result in death
+    const wouldDie = checkDeadlyMove(nextPos, gameState);
+    if (wouldDie) {
+      console.log('\n❌ TEST FAILED - SNAKE DIED!');
+      console.log('Cause of Death:', wouldDie);
+      console.log('Game Over! 💀');
+    } else {
+      console.log('\n✅ TEST PASSED - SAFE MOVE!');
+      if (wouldEatSmaller(nextPos, gameState)) {
+        console.log('Victory! Successfully eliminated smaller snake! 🎯');
+      }
+    }
+
+    console.log('\nChosen Move:', move.move);
+    console.log('Next Position:', JSON.stringify(nextPos));
+    
     res.json(move);
   } catch (error) {
-    console.error('CRITICAL ERROR:', error);
-    console.error('Game State:', JSON.stringify(req.body, null, 2));
-    // Emergency move
-    res.json({ move: getEmergencyMove(req.body) });
+    console.error('MOVE ERROR:', error);
+    res.json({ move: 'up' }); // Emergency fallback
   }
 }
 
-// End handler
 function handleEnd(req, res) {
-  const gameState = req.body;
-  console.log('\n=== GAME OVER ANALYSIS ===');
-  console.log('Game ID:', gameState.game.id);
-  console.log('Final Turn:', gameState.turn);
-  console.log('Final Length:', gameState.you.length);
-  console.log('Final Health:', gameState.you.health);
-  console.log('Cause of Death:', analyzeCauseOfDeath(gameState));
   res.json({});
 }
 
-// New helper function
-function analyzeCauseOfDeath(gameState) {
-  const head = gameState.you.head;
-  
-  // Check wall collision
-  if (head.x < 0 || head.x >= gameState.board.width ||
-      head.y < 0 || head.y >= gameState.board.height) {
-    return 'Wall collision';
+function checkDeadlyMove(nextPos, gameState) {
+  // Wall death
+  if (!isWithinBounds(nextPos, gameState)) {
+    return 'Hit wall';
   }
   
-  // Check self collision
-  if (gameState.you.body.slice(1).some(segment => 
-    segment.x === head.x && segment.y === head.y
-  )) {
-    return 'Self collision';
+  // Body collision death
+  const hitBody = gameState.board.snakes.some(snake => 
+    snake.body.some(segment => 
+      segment.x === nextPos.x && segment.y === nextPos.y
+    )
+  );
+  if (hitBody) {
+    return 'Hit snake body';
   }
   
-  // Check other snake collision
-  const otherSnakes = gameState.board.snakes.filter(s => s.id !== gameState.you.id);
-  for (const snake of otherSnakes) {
-    if (snake.body.some(segment => 
-      segment.x === head.x && segment.y === head.y
-    )) {
-      return 'Collision with other snake';
-    }
+  // Head collision death
+  const headCollisionDeath = gameState.board.snakes.some(snake => {
+    if (snake.id === gameState.you.id) return false;
+    
+    const enemyMoves = ['up', 'down', 'left', 'right'].map(move => 
+      getNextPosition(snake.head, move)
+    );
+    
+    return enemyMoves.some(enemyPos => 
+      enemyPos.x === nextPos.x && 
+      enemyPos.y === nextPos.y && 
+      snake.length >= gameState.you.length
+    );
+  });
+  if (headCollisionDeath) {
+    return 'Lost head-to-head collision';
   }
   
-  // Check head-to-head
-  for (const snake of otherSnakes) {
-    if (snake.head.x === head.x && snake.head.y === head.y) {
-      return `Head-to-head with ${snake.id} (length ${snake.length})`;
-    }
-  }
-  
-  return 'Unknown cause';
+  return false;
 }
 
-// Helper for emergency moves
-function getEmergencyMove(gameState) {
-  if (!gameState || !gameState.you || !gameState.you.head) {
-    console.log('EMERGENCY: Invalid game state, defaulting to up');
-    return 'up';
-  }
-
-  const head = gameState.you.head;
-  const moves = ['up', 'down', 'left', 'right'];
-  
-  // Try each move, return first one that doesn't hit a wall
-  for (const move of moves) {
-    const pos = getNextPosition(head, move);
-    if (isWithinBounds(pos, gameState)) {
-      console.log(`EMERGENCY: Choosing ${move} to avoid wall`);
-      return move;
-    }
-  }
-  
-  console.log('EMERGENCY: No safe moves found, defaulting to up');
-  return 'up';
+function wouldEatSmaller(nextPos, gameState) {
+  return gameState.board.snakes.some(snake => {
+    if (snake.id === gameState.you.id) return false;
+    
+    const enemyMoves = ['up', 'down', 'left', 'right'].map(move => 
+      getNextPosition(snake.head, move)
+    );
+    
+    return enemyMoves.some(enemyPos => 
+      enemyPos.x === nextPos.x && 
+      enemyPos.y === nextPos.y && 
+      snake.length < gameState.you.length
+    );
+  });
 }
 
 function getNextPosition(head, move) {
@@ -157,8 +127,10 @@ function getNextPosition(head, move) {
 }
 
 function isWithinBounds(pos, gameState) {
-  return pos.x >= 0 && pos.x < gameState.board.width &&
-         pos.y >= 0 && pos.y < gameState.board.height;
+  return pos.x >= 0 && 
+         pos.x < gameState.board.width && 
+         pos.y >= 0 && 
+         pos.y < gameState.board.height;
 }
 
 module.exports = {
@@ -166,4 +138,4 @@ module.exports = {
   handleStart,
   handleMove,
   handleEnd
-} 
+}; 
