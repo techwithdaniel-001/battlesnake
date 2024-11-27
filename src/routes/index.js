@@ -11,13 +11,26 @@ function handleIndex(req, res) {
   })
 }
 
+function handleStart(req, res) {
+  console.log("Game Starting...")
+  res.json({})
+}
+
 function handleMove(req, res) {
   const gameState = req.body
   const move = getMoveResponse(gameState)
+  console.log(`Moving ${move}...`)
   res.json({ move })
+}
+
+function handleEnd(req, res) {
+  console.log("Game Over!")
+  res.json({})
 }
 
 module.exports = {
   handleIndex,
-  handleMove
+  handleStart,
+  handleMove,
+  handleEnd
 } 
