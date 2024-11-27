@@ -12,114 +12,162 @@ const STRATEGIES = {
     COLLISION: {
         checkAll: function(pos, gameState) {
             // First check walls
-            if (!this.isValidPosition(pos, gameState)) {
-                console.log("🧱 Wall collision detected at:", pos);
+            if (this.isWallCollision(pos, gameState.board)) {
                 return { safe: false, reason: 'wall' };
             }
 
-            // ENHANCED SELF-COLLISION CHECK
-            const mySnake = gameState.you;
-            for (let i = 0; i < mySnake.body.length - 1; i++) {  // -1 to ignore tail
-                const segment = mySnake.body[i];
-                if (pos.x === segment.x && pos.y === segment.y) {
-                    console.log("🚫 Self collision detected at:", segment);
-                    return { safe: false, reason: 'self' };
-                }
-            }
-
-            // Check ALL snake bodies (including enemy snakes)
+            // Check ALL snake body collisions (including our own) with extra safety buffer
             for (const snake of gameState.board.snakes) {
-                // Log snake positions for debugging
-                console.log(`Checking snake ${snake.id} at:`, snake.body);
-                
-                // Check ENTIRE body of each snake
-                for (const segment of snake.body) {
+                // Check every segment of every snake
+                for (let i = 0; i < snake.body.length; i++) {
+                    const segment = snake.body[i];
+                    
+                    // Direct collision check
                     if (pos.x === segment.x && pos.y === segment.y) {
-                        console.log("🐍 Snake body collision detected at:", segment);
                         return { 
                             safe: false, 
-                            reason: snake.id === gameState.you.id ? 'self' : 'enemy',
-                            snake: snake
+                            reason: snake.id === gameState.you.id ? 'self' : 'enemy'
+                        };
+                    }
+
+                    // Add safety buffer around snake bodies
+                    const dangerouslyClose = Math.abs(pos.x - segment.x) + Math.abs(pos.y - segment.y) <= 1;
+                    if (dangerouslyClose && i !== 0) { // Don't apply buffer to heads
+                        console.log(`⚠️ Too close to ${snake.id}'s body at ${JSON.stringify(segment)}`);
+                        return { 
+                            safe: false, 
+                            reason: 'tooClose'
                         };
                     }
                 }
 
-                // Special check for vertical snake segments
-                for (let i = 1; i < snake.body.length; i++) {
-                    const prev = snake.body[i-1];
-                    const curr = snake.body[i];
-                    
-                    // If snake segment is vertical
-                    if (prev.x === curr.x && 
-                        pos.x === prev.x && 
-                        pos.y >= Math.min(prev.y, curr.y) && 
-                        pos.y <= Math.max(prev.y, curr.y)) {
-                        console.log("🚫 Vertical snake segment detected!");
-                        return { 
-                            safe: false, 
-                            reason: 'vertical_snake',
-                            snake: snake
-                        };
+                // Special head-to-head logic
+                if (snake.id !== gameState.you.id) {
+                    const headCollisionRisk = this.checkHeadToHead(pos, snake, gameState.you);
+                    if (headCollisionRisk) {
+                        return { safe: false, reason: 'headRisk' };
                     }
                 }
             }
 
-            return { safe: true, reason: null };
+            // Extra safety: check for potential trap situations
+            if (this.isPotentialTrap(pos, gameState)) {
+                return { safe: false, reason: 'trap' };
+            }
+
+            return { safe: true, reason: 'clear' };
+        },
+
+        isPotentialTrap: function(pos, gameState) {
+            // Count available exits from this position
+            let exits = 0;
+            const moves = [
+                {x: pos.x + 1, y: pos.y},
+                {x: pos.x - 1, y: pos.y},
+                {x: pos.x, y: pos.y + 1},
+                {x: pos.x, y: pos.y - 1}
+            ];
+
+            for (const move of moves) {
+                let isBlocked = false;
+
+                // Check if move is off board
+                if (move.x < 0 || move.x >= gameState.board.width ||
+                    move.y < 0 || move.y >= gameState.board.height) {
+                    isBlocked = true;
+                    continue;
+                }
+
+                // Check if move hits any snake
+                for (const snake of gameState.board.snakes) {
+                    for (const segment of snake.body) {
+                        if (move.x === segment.x && move.y === segment.y) {
+                            isBlocked = true;
+                            break;
+                        }
+                    }
+                    if (isBlocked) break;
+                }
+
+                if (!isBlocked) exits++;
+            }
+
+            // If there's only one exit, it's a potential trap
+            const isTrap = exits < 2;
+            if (isTrap) {
+                console.log(`🚫 Potential trap detected at ${JSON.stringify(pos)} - only ${exits} exits`);
+            }
+            return isTrap;
+        },
+
+        checkHeadToHead: function(pos, enemySnake, ourSnake) {
+            // Calculate possible enemy head positions
+            const enemyHead = enemySnake.head;
+            const possibleEnemyMoves = [
+                {x: enemyHead.x + 1, y: enemyHead.y},
+                {x: enemyHead.x - 1, y: enemyHead.y},
+                {x: enemyHead.x, y: enemyHead.y + 1},
+                {x: enemyHead.x, y: enemyHead.y - 1}
+            ];
+
+            // Check if our move could result in head-to-head
+            for (const enemyMove of possibleEnemyMoves) {
+                if (pos.x === enemyMove.x && pos.y === enemyMove.y) {
+                    // Only safe if we're strictly longer (not equal)
+                    const isSafe = ourSnake.length > enemySnake.length;
+                    console.log(`🐍 Head-to-head with ${enemySnake.id}: ${isSafe ? 'safe' : 'unsafe'}`);
+                    return !isSafe;
+                }
+            }
+
+            return false;
+        },
+
+        isWallCollision: function(pos, board) {
+            return pos.x < 0 || pos.x >= board.width || 
+                   pos.y < 0 || pos.y >= board.height;
         },
 
         isValidPosition: function(pos, gameState) {
-            return pos.x >= 0 && 
-                   pos.x < gameState.board.width && 
-                   pos.y >= 0 && 
-                   pos.y < gameState.board.height;
-        },
+            // Check if position is within board bounds
+            if (pos.x < 0 || pos.x >= gameState.board.width ||
+                pos.y < 0 || pos.y >= gameState.board.height) {
+                console.log("❌ Position out of bounds");
+                return false;
+            }
 
-        checkSnakeCollision: function(pos, gameState) {
+            // Check for collisions with all snake bodies (including our own)
             for (const snake of gameState.board.snakes) {
-                // Check body segments (excluding tail)
-                for (let i = 0; i < snake.body.length - 1; i++) {
-                    if (snake.body[i].x === pos.x && snake.body[i].y === pos.y) {
-                        return { willCollide: true, collisionType: 'body' };
+                for (let i = 0; i < snake.body.length; i++) {
+                    const segment = snake.body[i];
+                    
+                    // Direct collision check
+                    if (pos.x === segment.x && pos.y === segment.y) {
+                        console.log(`❌ Collision with ${snake.id}'s body at position ${JSON.stringify(segment)}`);
+                        return false;
+                    }
+
+                    // Safety buffer around snake bodies (except heads)
+                    if (i !== 0) {  // Skip head for buffer check
+                        const tooClose = Math.abs(pos.x - segment.x) + Math.abs(pos.y - segment.y) <= 1;
+                        if (tooClose) {
+                            console.log(`⚠️ Too close to ${snake.id}'s body at ${JSON.stringify(segment)}`);
+                            return false;
+                        }
                     }
                 }
-                
-                // Special tail check
-                const tail = snake.body[snake.body.length - 1];
-                const secondLast = snake.body[snake.body.length - 2];
-                if (tail.x === pos.x && tail.y === pos.y) {
-                    if (tail.x === secondLast.x && tail.y === secondLast.y) {
-                        return { willCollide: true, collisionType: 'tail' };
+
+                // Special head-to-head check for enemy snakes
+                if (snake.id !== gameState.you.id) {
+                    const headToHead = this.checkHeadToHead(pos, snake, gameState.you);
+                    if (headToHead) {
+                        console.log(`🐍 Unsafe head-to-head with ${snake.id}`);
+                        return false;
                     }
                 }
             }
-            return { willCollide: false };
-        },
 
-        checkHeadCollision: function(pos, gameState) {
-            const myLength = gameState.you.length;
-            let dangerous = false;
-            let enemyLength = 0;
-
-            gameState.board.snakes.forEach(snake => {
-                if (snake.id === gameState.you.id) return;
-
-                const enemyHead = snake.head;
-                const possibleMoves = [
-                    {x: enemyHead.x + 1, y: enemyHead.y},
-                    {x: enemyHead.x - 1, y: enemyHead.y},
-                    {x: enemyHead.x, y: enemyHead.y + 1},
-                    {x: enemyHead.x, y: enemyHead.y - 1}
-                ];
-
-                if (possibleMoves.some(move => 
-                    move.x === pos.x && move.y === pos.y
-                ) && snake.length >= myLength) {
-                    dangerous = true;
-                    enemyLength = snake.length;
-                }
-            });
-
-            return { dangerous, enemyLength };
+            return true;
         }
     },
 
