@@ -4,7 +4,7 @@ function handleIndex(req, res) {
   res.json({
     apiversion: "1",
     author: "Ebubechukwu",
-    color: "#00FF00",
+    color: "#FF0000",
     head: "silly",
     tail: "bolt",
     version: "1.0.0"
