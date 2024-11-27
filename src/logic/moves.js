@@ -13,20 +13,33 @@ function getMoveResponse(gameState) {
   for (const move of possibleMoves) {
     const nextPos = getNextPosition(head, move)
     
-    // Skip if move is unsafe
+    // Skip if move hits wall
     if (isOutOfBounds(nextPos, gameState.board)) {
       console.log(`${move} would hit wall`)
       continue
     }
     
-    if (willHitSnake(nextPos, gameState.board.snakes)) {
-      console.log(`${move} would hit snake body`)
+    // Skip if move hits own body
+    if (willHitSelf(nextPos, gameState.you.body)) {
+      console.log(`${move} would hit self`)
       continue
     }
     
-    // Check for potential head-to-head collisions
+    // Skip if move hits other snakes
+    if (willHitOtherSnakes(nextPos, gameState.board.snakes, gameState.you.id)) {
+      console.log(`${move} would hit other snake`)
+      continue
+    }
+    
+    // Skip if move risks head collision with larger snake
     if (willCollideWithLargerSnakeHead(nextPos, myLength, gameState.board.snakes)) {
       console.log(`${move} risks head collision with larger snake`)
+      continue
+    }
+    
+    // Check if move leads to a trap
+    if (willGetTrapped(nextPos, gameState)) {
+      console.log(`${move} leads to a trap`)
       continue
     }
     
@@ -42,6 +55,62 @@ function getMoveResponse(gameState) {
   }
   
   return chooseBestMove(gameState, safeMoves)
+}
+
+function willHitSelf(pos, myBody) {
+  // Check all body segments except the tail (which will move)
+  return myBody.slice(0, -1).some(segment => 
+    segment.x === pos.x && segment.y === pos.y
+  )
+}
+
+function willHitOtherSnakes(pos, snakes, myId) {
+  return snakes.some(snake => 
+    snake.id !== myId && 
+    snake.body.some(segment => 
+      segment.x === pos.x && segment.y === pos.y
+    )
+  )
+}
+
+function willGetTrapped(pos, gameState) {
+  // Do a flood fill to count available spaces
+  const availableSpace = floodFill(pos, gameState)
+  const myLength = gameState.you.length
+  
+  // If available space is less than our length, it's a trap
+  if (availableSpace < myLength) {
+    console.log(`Only ${availableSpace} spaces available, need ${myLength}`)
+    return true
+  }
+  return false
+}
+
+function floodFill(start, gameState) {
+  const visited = new Set()
+  const queue = [start]
+  const board = gameState.board
+  
+  while (queue.length > 0) {
+    const pos = queue.shift()
+    const key = `${pos.x},${pos.y}`
+    
+    if (visited.has(key)) continue
+    if (isOutOfBounds(pos, board)) continue
+    if (willHitSnake(pos, gameState.board.snakes)) continue
+    
+    visited.add(key)
+    
+    // Add adjacent squares
+    queue.push(
+      {x: pos.x + 1, y: pos.y},
+      {x: pos.x - 1, y: pos.y},
+      {x: pos.x, y: pos.y + 1},
+      {x: pos.x, y: pos.y - 1}
+    )
+  }
+  
+  return visited.size
 }
 
 function willCollideWithLargerSnakeHead(myNextPos, myLength, snakes) {
@@ -96,6 +165,10 @@ function evaluatePosition(gameState, pos) {
   const health = gameState.you.health
   const myLength = gameState.you.length
   
+  // SPACE EVALUATION
+  const availableSpace = floodFill(pos, gameState)
+  score += availableSpace * 2  // Prefer moves with more space
+  
   // FOOD SEEKING
   const nearestFood = findNearestFood(gameState, pos)
   if (nearestFood) {
@@ -121,12 +194,6 @@ function evaluatePosition(gameState, pos) {
       }
     }
   }
-  
-  // Center control is now tertiary priority
-  const centerX = Math.floor(gameState.board.width / 2)
-  const centerY = Math.floor(gameState.board.height / 2)
-  const distanceToCenter = Math.abs(pos.x - centerX) + Math.abs(pos.y - centerY)
-  score -= distanceToCenter * 0.5
   
   console.log(`Position (${pos.x},${pos.y}) total score: ${score}`)
   return score
