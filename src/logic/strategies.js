@@ -11,51 +11,49 @@ const STRATEGIES = {
     // Collision Detection System
     COLLISION: {
         checkAll: function(pos, gameState) {
-            // First check walls
+            // FIRST PRIORITY: Self collision check
+            const selfCollision = this.checkSelfCollision(pos, gameState.you);
+            if (selfCollision.collision) {
+                console.log("🚫 Would collide with self:", selfCollision.reason);
+                return { safe: false, reason: selfCollision.reason };
+            }
+
+            // Then check other hazards
             if (this.isWallCollision(pos, gameState.board)) {
                 return { safe: false, reason: 'wall' };
             }
 
-            // Check ALL snake body collisions (including our own) with extra safety buffer
+            // Check other snake collisions
             for (const snake of gameState.board.snakes) {
-                // Check every segment of every snake
-                for (let i = 0; i < snake.body.length; i++) {
-                    const segment = snake.body[i];
-                    
-                    // Direct collision check
-                    if (pos.x === segment.x && pos.y === segment.y) {
-                        return { 
-                            safe: false, 
-                            reason: snake.id === gameState.you.id ? 'self' : 'enemy'
-                        };
-                    }
-
-                    // Add safety buffer around snake bodies
-                    const dangerouslyClose = Math.abs(pos.x - segment.x) + Math.abs(pos.y - segment.y) <= 1;
-                    if (dangerouslyClose && i !== 0) { // Don't apply buffer to heads
-                        console.log(`⚠️ Too close to ${snake.id}'s body at ${JSON.stringify(segment)}`);
-                        return { 
-                            safe: false, 
-                            reason: 'tooClose'
-                        };
+                if (snake.id !== gameState.you.id) {  // Skip self, already checked
+                    for (const segment of snake.body) {
+                        if (pos.x === segment.x && pos.y === segment.y) {
+                            return { safe: false, reason: 'enemy snake body' };
+                        }
                     }
                 }
-
-                // Special head-to-head logic
-                if (snake.id !== gameState.you.id) {
-                    const headCollisionRisk = this.checkHeadToHead(pos, snake, gameState.you);
-                    if (headCollisionRisk) {
-                        return { safe: false, reason: 'headRisk' };
-                    }
-                }
-            }
-
-            // Extra safety: check for potential trap situations
-            if (this.isPotentialTrap(pos, gameState)) {
-                return { safe: false, reason: 'trap' };
             }
 
             return { safe: true, reason: 'clear' };
+        },
+
+        checkSelfCollision: function(pos, selfSnake) {
+            // Check EVERY segment of our own body
+            for (let i = 0; i < selfSnake.body.length; i++) {
+                const segment = selfSnake.body[i];
+                
+                // Skip the tail as it will move
+                if (i === selfSnake.body.length - 1) continue;
+                
+                if (pos.x === segment.x && pos.y === segment.y) {
+                    return {
+                        collision: true,
+                        reason: `self collision with body segment ${i}`
+                    };
+                }
+            }
+
+            return { collision: false };
         },
 
         isPotentialTrap: function(pos, gameState) {
@@ -165,6 +163,20 @@ const STRATEGIES = {
                         return false;
                     }
                 }
+            }
+
+            return true;
+        },
+
+        // Additional safety check for move validation
+        validateMove: function(move, gameState) {
+            const newPos = this.getNewPosition(gameState.you.head, move);
+            
+            // Double-check self collision before any move
+            const selfCheck = this.checkSelfCollision(newPos, gameState.you);
+            if (selfCheck.collision) {
+                console.log("🚨 CRITICAL: Prevented self collision!");
+                return false;
             }
 
             return true;
