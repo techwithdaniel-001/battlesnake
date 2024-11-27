@@ -8,12 +8,14 @@ const HEALTH_THRESHOLD = 50
 function handleIndex(req, res) {
   const battlesnakeInfo = {
     apiversion: "1",
-    author: "Ebubechukwu",
+    author: "ebube12345",
     color: "#FF0000",
     head: "silly",
     tail: "bolt",
-    version: "1.0.0"
+    version: "v2.1 - Trapping Update"
   }
+  
+  console.log('Battlesnake Info:', battlesnakeInfo);
   res.json(battlesnakeInfo)
 }
 
