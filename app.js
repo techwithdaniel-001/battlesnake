@@ -8,7 +8,6 @@ app.get('/', handleIndex)
 app.post('/start', handleStart)
 app.post('/move', handleMove)
 app.post('/end', handleEnd)
-app.post('/', handleMove)
 
 const port = process.env.PORT || 8080
 app.listen(port, () => {

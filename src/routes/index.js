@@ -12,23 +12,22 @@ function handleIndex(req, res) {
 }
 
 function handleStart(req, res) {
-  console.log("Game Starting...")
+  console.log("GAME START")
   res.json({})
 }
 
 function handleMove(req, res) {
   const gameState = req.body
-  console.log('Turn:', gameState.turn)
-  console.log('Health:', gameState.you.health)
+  console.log(`Turn ${gameState.turn}: Health=${gameState.you.health}`)
   
   const move = getMoveResponse(gameState)
+  console.log(`Moving ${move}`)
   
-  console.log('Chosen move:', move)
   res.json({ move })
 }
 
 function handleEnd(req, res) {
-  console.log("Game Over!")
+  console.log("GAME OVER")
   res.json({})
 }
 
