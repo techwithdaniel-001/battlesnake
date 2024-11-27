@@ -1,36 +1,22 @@
 const { evaluateMove } = require('./strategy')
+const { astar } = require('./pathfinding')
 
 function getMoveResponse(gameState) {
   const head = gameState.you.body[0]
   const possibleMoves = ['up', 'down', 'left', 'right']
   
-  // Filter out moves that would hit walls
-  const safeMoves = possibleMoves.filter(move => {
-    const nextPos = getNextPosition(head, move)
-    
-    // Check walls
-    if (nextPos.x < 0) return false
-    if (nextPos.x >= gameState.board.width) return false
-    if (nextPos.y < 0) return false
-    if (nextPos.y >= gameState.board.height) return false
-    
-    // Check for self collision
-    return !willHitSelf(nextPos, gameState.you.body)
-  })
+  // Score each possible move
+  const scoredMoves = possibleMoves.map(move => ({
+    move,
+    score: evaluateMove(gameState, getNextPosition(head, move))
+  }))
 
-  // Log safe moves for debugging
-  console.log('Safe moves:', safeMoves)
+  console.log('Scored moves:', scoredMoves)
   
-  // If no safe moves available, we're trapped
-  if (safeMoves.length === 0) {
-    console.log('WARNING: No safe moves available!')
-    return possibleMoves[0] // We're probably going to die, but try something
-  }
+  // Sort by score
+  scoredMoves.sort((a, b) => b.score - a.score)
   
-  // Choose a random safe move
-  const move = safeMoves[Math.floor(Math.random() * safeMoves.length)]
-  console.log('Chosen move:', move)
-  return move
+  return scoredMoves[0].move
 }
 
 function getNextPosition(head, move) {
