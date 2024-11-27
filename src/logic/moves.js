@@ -722,7 +722,7 @@ function isStrictlySafe(pos, gameState) {
     return false;
   }
 
-  // 2. Never hit ANY snake body (including self)
+  // 2. Never hit ANY snake body
   const anySnakeCollision = gameState.board.snakes.some(snake => 
     snake.body.some(segment => 
       segment.x === pos.x && segment.y === pos.y
@@ -733,28 +733,26 @@ function isStrictlySafe(pos, gameState) {
     return false;
   }
 
-  // 3. STRICT head-to-head check - NEVER risk unless we're bigger
+  // 3. SUPER STRICT head-to-head check - Must be AT LEAST 2 longer
   const headToHeadDanger = gameState.board.snakes.some(snake => {
     if (snake.id === gameState.you.id) return false;
     
-    // Calculate possible enemy next positions
     const possibleEnemyMoves = ['up', 'down', 'left', 'right'].map(move => 
       getNextPosition(snake.head, move)
     );
 
-    // Check if we might meet head-to-head
     const couldCollide = possibleEnemyMoves.some(enemyPos => 
       enemyPos.x === pos.x && enemyPos.y === pos.y
     );
 
     if (couldCollide) {
-      // If enemy is same size or bigger, position is NOT safe
-      if (gameState.you.length <= snake.length) {
-        console.log(`UNSAFE: Possible head collision with ${snake.length}-length snake (we are ${gameState.you.length})`);
+      // Only safe if we're AT LEAST 2 longer
+      const lengthAdvantage = gameState.you.length - snake.length;
+      if (lengthAdvantage < 2) {
+        console.log(`UNSAFE: Not enough length advantage over ${snake.length}-length snake (we are ${gameState.you.length}, need +2)`);
         return true;
       }
-      // Only safe if we're strictly longer
-      console.log(`SAFE: Can eliminate ${snake.length}-length snake (we are ${gameState.you.length})`);
+      console.log(`SAFE: Can eliminate ${snake.length}-length snake (we are ${gameState.you.length}, +${lengthAdvantage} advantage)`);
     }
     return false;
   });
