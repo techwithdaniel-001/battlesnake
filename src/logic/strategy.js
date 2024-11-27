@@ -5,6 +5,8 @@ const PRIORITIES = {
   DEFEND: 40
 }
 
+const { astar, manhattanDistance } = require('./pathfinding')
+
 function evaluateMove(gameState, move) {
   const head = gameState.you.body[0]
   const nextPos = getNextPosition(head, move)
@@ -168,6 +170,35 @@ function isValidPosition(pos, gameState) {
   return !gameState.board.snakes.some(snake =>
     snake.body.some(b => b.x === pos.x && b.y === pos.y)
   )
+}
+
+function getBoardMap(gameState) {
+  const width = gameState.board.width
+  const height = gameState.board.height
+  const board = Array(height).fill().map(() => Array(width).fill(0))
+  
+  // Mark snake bodies
+  gameState.board.snakes.forEach(snake => {
+    snake.body.forEach(pos => {
+      board[pos.y][pos.x] = 1
+    })
+  })
+  
+  // Mark food
+  gameState.board.food.forEach(food => {
+    board[food.y][food.x] = 2
+  })
+  
+  return board
+}
+
+function shouldChaseTail(gameState) {
+  const health = gameState.you.health
+  const nearestFood = findNearestFood(gameState, gameState.you.head)
+  
+  // Chase tail if healthy and no nearby food
+  return health > 50 && (!nearestFood || 
+    manhattanDistance(gameState.you.head, nearestFood) > 5)
 }
 
 module.exports = {
