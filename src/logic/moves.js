@@ -14,28 +14,36 @@ const CELL = {
 }
 
 function getMoveResponse(gameState) {
-  // Create and display detailed board state
+  debugLog('STARTING MOVE CALCULATION', {
+    turn: gameState.turn,
+    health: gameState.you.health
+  })
+  
+  // Create and display board
   const board = createDetailedBoard(gameState)
-  console.log('\nCurrent Board State:')
-  printBoard(board)
+  debugLog('CURRENT BOARD', printBoardToString(board))
   
-  // Mark dangerous areas around enemy heads
-  markDangerZones(board, gameState)
-  console.log('\nBoard with Danger Zones:')
-  printBoard(board)
+  // Get possible moves
+  const possibleMoves = getPossibleMoves(gameState)
+  debugLog('POSSIBLE MOVES', possibleMoves)
   
-  // Find safe paths to food
-  const foodPaths = findSafeFoodPaths(board, gameState)
-  console.log('\nFound food paths:', 
-    foodPaths.map(p => ({
-      food: `(${p.food.x},${p.food.y})`,
-      length: p.path.length,
-      safety: p.safety.toFixed(2)
-    }))
-  )
+  // Evaluate each move
+  const scoredMoves = possibleMoves.map(move => ({
+    move,
+    score: evaluateMove(gameState, move)
+  }))
+  debugLog('MOVE SCORES', scoredMoves)
   
-  // Choose best move based on board analysis
-  return chooseBestMove(board, gameState, foodPaths)
+  // Choose best move
+  const bestMove = chooseBestMove(scoredMoves)
+  debugLog('CHOSEN MOVE', bestMove)
+  
+  return bestMove
+}
+
+// Helper to convert board to string
+function printBoardToString(board) {
+  return board.map(row => row.join(' ')).join('\n')
 }
 
 function createDetailedBoard(gameState) {

@@ -1,5 +1,12 @@
 const { getMoveResponse } = require('../logic/moves')
 
+// Add debug logging function
+function debugLog(title, data) {
+  console.log('\n🔍 DEBUG:', title)
+  console.log(JSON.stringify(data, null, 2))
+  console.log('------------------------')
+}
+
 function handleIndex(req, res) {
   try {
     const battlesnakeInfo = {
@@ -41,22 +48,39 @@ function handleMove(req, res) {
   try {
     const gameState = req.body
     
-    // Detailed game state logging
-    console.log('\n=== TURN', gameState.turn, '===')
-    console.log('My Snake:')
-    console.log('- Health:', gameState.you.health)
-    console.log('- Length:', gameState.you.length)
-    console.log('- Head:', gameState.you.head)
-    console.log('Board:')
-    console.log('- Food:', gameState.board.food)
-    console.log('- Snakes:', gameState.board.snakes.length)
-    
+    // Debug: Log full game state
+    debugLog('FULL GAME STATE', {
+      turn: gameState.turn,
+      board: {
+        width: gameState.board.width,
+        height: gameState.board.height,
+        food: gameState.board.food,
+        snakes: gameState.board.snakes.map(s => ({
+          id: s.id,
+          length: s.length,
+          head: s.head
+        }))
+      },
+      you: {
+        id: gameState.you.id,
+        health: gameState.you.health,
+        length: gameState.you.length,
+        head: gameState.you.head
+      }
+    })
+
     // Validate game state
     if (!gameState.you || !gameState.board) {
+      debugLog('ERROR', 'Invalid game state')
       throw new Error('Invalid game state received')
     }
     
     // Get and validate move
+    debugLog('CALCULATING MOVE', {
+      myHead: gameState.you.head,
+      nearestFood: gameState.board.food[0]
+    })
+    
     const move = getMoveResponse(gameState)
     
     // Validate move response

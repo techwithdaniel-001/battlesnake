@@ -1,41 +1,25 @@
 const express = require('express')
-const {
-  handleIndex,
-  handleStart,
-  handleMove,
-  handleEnd
-} = require('./src/routes')
+const logger = require('./src/utils/logger')
+const routes = require('./src/routes')
 
 const app = express()
-
-// Middleware
 app.use(express.json())
 
-// Debug middleware - log all requests
+// Add logging middleware
 app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path}`)
+  logger.info(`${req.method} ${req.path}`)
   next()
 })
 
 // Routes
-app.get('/', handleIndex)
-app.post('/start', handleStart)
-app.post('/move', handleMove)
-app.post('/end', handleEnd)
+app.get('/', routes.handleIndex)
+app.post('/start', routes.handleStart)
+app.post('/move', routes.handleMove)
+app.post('/end', routes.handleEnd)
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack)
-  res.status(500).json({
-    error: 'Something broke!',
-    message: err.message
-  })
-})
-
-// Start server
 const port = process.env.PORT || 8080
 app.listen(port, () => {
-  console.log(`Server listening on port ${port}`)
+  logger.info(`Server started on port ${port}`)
 })
 
 module.exports = app
