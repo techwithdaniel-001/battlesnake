@@ -5,18 +5,19 @@ function getMoveResponse(gameState) {
   const head = gameState.you.body[0]
   const possibleMoves = ['up', 'down', 'left', 'right']
   
-  // Score each possible move
-  const scoredMoves = possibleMoves.map(move => ({
-    move,
-    score: evaluateMove(gameState, getNextPosition(head, move))
-  }))
+  // Filter out unsafe moves
+  const safeMoves = possibleMoves.filter(move => {
+    const nextPos = getNextPosition(head, move)
+    return isSafeMove(gameState, nextPos)
+  })
 
-  console.log('Scored moves:', scoredMoves)
-  
-  // Sort by score
-  scoredMoves.sort((a, b) => b.score - a.score)
-  
-  return scoredMoves[0].move
+  // If no safe moves, try any move
+  if (safeMoves.length === 0) {
+    return possibleMoves[0]
+  }
+
+  // Choose a random safe move
+  return safeMoves[Math.floor(Math.random() * safeMoves.length)]
 }
 
 function getNextPosition(head, move) {
