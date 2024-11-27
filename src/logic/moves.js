@@ -43,9 +43,12 @@ function chooseBestMove(gameState, safeMoves) {
   let bestMove = safeMoves[0]
   let bestScore = -Infinity
   
+  console.log('Evaluating moves:')
   for (const move of safeMoves) {
     const nextPos = getNextPosition(gameState.you.body[0], move)
     const score = evaluatePosition(gameState, nextPos)
+    
+    console.log(`Move ${move} to (${nextPos.x},${nextPos.y}) score: ${score}`)
     
     if (score > bestScore) {
       bestScore = score
@@ -53,40 +56,58 @@ function chooseBestMove(gameState, safeMoves) {
     }
   }
   
-  console.log(`Choosing ${bestMove} with score ${bestScore}`)
+  console.log(`Chose ${bestMove} with score ${bestScore}`)
   return bestMove
 }
 
 function evaluatePosition(gameState, pos) {
   let score = 0
+  const health = gameState.you.health
   
-  // Prefer center
-  const centerX = Math.floor(gameState.board.width / 2)
-  const centerY = Math.floor(gameState.board.height / 2)
-  const distanceToCenter = Math.abs(pos.x - centerX) + Math.abs(pos.y - centerY)
-  score -= distanceToCenter
-  
-  // Consider food if health is low
-  if (gameState.you.health < 50) {
-    const nearestFood = findNearestFood(gameState, pos)
-    if (nearestFood) {
-      const foodDistance = Math.abs(pos.x - nearestFood.x) + Math.abs(pos.y - nearestFood.y)
-      score += (100 - foodDistance)
+  // FOOD SEEKING - More aggressive now
+  const nearestFood = findNearestFood(gameState, pos)
+  if (nearestFood) {
+    const foodDistance = Math.abs(pos.x - nearestFood.x) + Math.abs(pos.y - nearestFood.y)
+    
+    // Urgent food seeking when health is low
+    if (health < 30) {
+      score += (200 - foodDistance * 2)  // Very high priority
+      console.log(`Hungry! Food distance: ${foodDistance}, Score boost: ${200 - foodDistance * 2}`)
+    }
+    // Moderate food seeking when health is medium
+    else if (health < 75) {
+      score += (100 - foodDistance)  // Medium priority
+      console.log(`Could eat! Food distance: ${foodDistance}, Score boost: ${100 - foodDistance}`)
     }
   }
   
+  // Center control is now secondary to food
+  const centerX = Math.floor(gameState.board.width / 2)
+  const centerY = Math.floor(gameState.board.height / 2)
+  const distanceToCenter = Math.abs(pos.x - centerX) + Math.abs(pos.y - centerY)
+  score -= distanceToCenter * 0.5  // Reduced weight for center control
+  
+  console.log(`Position (${pos.x},${pos.y}) total score: ${score}`)
   return score
 }
 
 function findNearestFood(gameState, pos) {
-  return gameState.board.food.reduce((nearest, food) => {
-    if (!nearest) return food
-    
-    const currentDist = Math.abs(pos.x - food.x) + Math.abs(pos.y - food.y)
-    const nearestDist = Math.abs(pos.x - nearest.x) + Math.abs(pos.y - nearest.y)
-    
-    return currentDist < nearestDist ? food : nearest
-  }, null)
+  let nearestFood = null
+  let minDistance = Infinity
+
+  for (const food of gameState.board.food) {
+    const distance = Math.abs(pos.x - food.x) + Math.abs(pos.y - food.y)
+    if (distance < minDistance) {
+      minDistance = distance
+      nearestFood = food
+    }
+  }
+
+  if (nearestFood) {
+    console.log(`Nearest food at (${nearestFood.x},${nearestFood.y}), distance: ${minDistance}`)
+  }
+  
+  return nearestFood
 }
 
 function emergencyMove(gameState) {
