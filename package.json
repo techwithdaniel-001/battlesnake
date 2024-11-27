@@ -1,0 +1,19 @@
+{
+  "name": "battlesnake",
+  "version": "1.0.0",
+  "description": "A Battlesnake AI written in Node.js",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "nodemon app.js"
+  },
+  "dependencies": {
+    "express": "^4.21.1"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.22"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
