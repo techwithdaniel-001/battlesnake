@@ -187,9 +187,10 @@ const STRATEGIES = {
             let bestScore = -Infinity;
 
             // Evaluate future moves to avoid being boxed in
-            if (this.isBoxedIn(head, gameState)) {
-                console.log("⚠️ Avoiding boxed-in position.");
-                return 'stay'; // Stay in place if boxed in
+            const futurePositions = this.evaluateFutureMoves(head, gameState);
+            if (this.assessFutureRisk(futurePositions, gameState)) {
+                console.log("⚠️ Avoiding moves that lead to being boxed in.");
+                return 'stay'; // Stay in place if future moves are risky
             }
 
             for (const move of moves) {
@@ -201,15 +202,10 @@ const STRATEGIES = {
                     continue; // Skip risky moves
                 }
 
-                // Check for head-to-head danger
-                for (const snake of gameState.board.snakes) {
-                    if (snake.id !== gameState.you.id) {
-                        const headToHeadDanger = this.checkHeadToHead(newPos, snake, gameState.you);
-                        if (headToHeadDanger) {
-                            console.log(`🚫 Avoiding head-to-head with snake ${snake.id}`);
-                            continue; // Skip this move
-                        }
-                    }
+                // Avoid moving near the heads of longer snakes
+                if (this.avoidLongerSnakeHeads(newPos, gameState)) {
+                    console.log(`🚫 Avoiding move near longer snake head: ${move}`);
+                    continue; // Skip this move
                 }
 
                 const moveCheck = this.checkAll(newPos, gameState);
@@ -223,6 +219,19 @@ const STRATEGIES = {
             }
 
             return bestMove || 'stay'; // Stay in place if no safe moves
+        },
+
+        assessCollisionRisk: function(newPos, enemyPredictions) {
+            for (const id in enemyPredictions) {
+                const predictedMoves = enemyPredictions[id];
+                for (const enemyMove of predictedMoves) {
+                    if (newPos.x === enemyMove.x && newPos.y === enemyMove.y) {
+                        console.log(`🚫 Avoiding move to ${newPos.x}, ${newPos.y} due to predicted collision with enemy ${id}`);
+                        return true; // Indicates a collision risk
+                    }
+                }
+            }
+            return false; // No collision risk
         }
     },
 
@@ -255,7 +264,7 @@ const STRATEGIES = {
             }
             // Medium Health (61-80) - Balanced Mode
             else {
-                console.log("⚠️ Medium Health: Balanced strategy");
+                console.log("⚠ Medium Health: Balanced strategy");
                 return this.balancedStrategy(pos, gameState);
             }
         },
@@ -1073,7 +1082,7 @@ const STRATEGIES = {
         let bestMove = null;
         let bestScore = -Infinity;
 
-        // Track enemy positions
+        // Track enemy positions and predict their moves
         const enemyPositions = this.trackEnemies(gameState);
         const enemyPredictions = this.predictEnemyMoves(enemyPositions);
 
@@ -1086,15 +1095,9 @@ const STRATEGIES = {
                 continue; // Skip risky moves
             }
 
-            // Check for potential collisions with predicted enemy moves
-            for (const id in enemyPredictions) {
-                const predictedMoves = enemyPredictions[id];
-                for (const enemyMove of predictedMoves) {
-                    if (newPos.x === enemyMove.x && newPos.y === enemyMove.y) {
-                        console.log(`🚫 Avoiding collision with predicted move of enemy ${id}`);
-                        continue; // Skip this move
-                    }
-                }
+            // Assess collision risk with predicted enemy moves
+            if (this.assessCollisionRisk(newPos, enemyPredictions)) {
+                continue; // Skip this move if it leads to a collision
             }
 
             const moveCheck = this.checkAll(newPos, gameState);
@@ -1161,6 +1164,16 @@ const STRATEGIES = {
             }
 
             return futurePositions;
+        },
+
+        assessFutureRisk: function(futurePositions, gameState) {
+            for (const pos of futurePositions) {
+                if (this.isBoxedIn(pos, gameState)) {
+                    console.log(`⚠️ Future position ${pos.x}, ${pos.y} is boxed in.`);
+                    return true; // Indicates a risky future position
+                }
+            }
+            return false; // No risky future positions
         }
     },
 
@@ -1199,6 +1212,41 @@ const STRATEGIES = {
             }
 
             return predictions; // Return an object containing predicted moves
+        }
+    },
+
+    AVOID_LONGER_SNAKES: {
+        getLongerSnakes: function(gameState) {
+            const longerSnakes = [];
+
+            for (const snake of gameState.board.snakes) {
+                if (snake.id !== gameState.you.id && snake.length > gameState.you.length) {
+                    longerSnakes.push(snake);
+                }
+            }
+
+            return longerSnakes; // Return an array of longer snakes
+        },
+
+        avoidLongerSnakeHeads: function(pos, gameState) {
+            const longerSnakes = this.getLongerSnakes(gameState);
+            const dangerousPositions = [];
+
+            for (const snake of longerSnakes) {
+                const enemyHead = snake.head;
+                // Check positions adjacent to the enemy head
+                const adjacentPositions = [
+                    {x: enemyHead.x + 1, y: enemyHead.y}, // right
+                    {x: enemyHead.x - 1, y: enemyHead.y}, // left
+                    {x: enemyHead.x, y: enemyHead.y + 1}, // down
+                    {x: enemyHead.x, y: enemyHead.y - 1}  // up
+                ];
+
+                dangerousPositions.push(...adjacentPositions);
+            }
+
+            // Check if the current position is near any dangerous positions
+            return dangerousPositions.some(dangerPos => pos.x === dangerPos.x && pos.y === dangerPos.y);
         }
     }
 };
