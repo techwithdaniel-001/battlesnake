@@ -107,14 +107,9 @@ const STRATEGIES = {
             // Check if our move could result in head-to-head
             for (const enemyMove of possibleEnemyMoves) {
                 if (pos.x === enemyMove.x && pos.y === enemyMove.y) {
-                    // Engage if our snake is at least 2 segments longer
-                    if (ourSnake.length >= enemySnake.length + 3) {
-                        console.log(`✅ Engaging head-to-head: Our length: ${ourSnake.length}, Enemy length: ${enemySnake.length}`);
-                        return false; // Safe to engage
-                    }
-                    // Avoid if our snake is less than 1 segment longer
-                    if (ourSnake.length <= enemySnake.length + 1) {
-                        console.log(`🚫 Avoiding head-to-head with smaller snake! Our length: ${ourSnake.length}, Enemy length: ${enemySnake.length}`);
+                    // Avoid head-to-head with equal length snakes
+                    if (ourSnake.length === enemySnake.length) {
+                        console.log(`🚫 Avoiding head-to-head with equal length snake!`);
                         return true; // Indicates danger
                     }
                 }
@@ -191,6 +186,12 @@ const STRATEGIES = {
             let bestMove = null;
             let bestScore = -Infinity;
 
+            // Evaluate future moves to avoid being boxed in
+            if (this.isBoxedIn(head, gameState)) {
+                console.log("⚠️ Avoiding boxed-in position.");
+                return 'stay'; // Stay in place if boxed in
+            }
+
             for (const move of moves) {
                 const newPos = this.getSafePosition(head, move, gameState.board);
                 
@@ -198,6 +199,17 @@ const STRATEGIES = {
                 if (this.assessRisk(newPos, gameState)) {
                     console.log(`🚫 Avoiding risky move: ${move}`);
                     continue; // Skip risky moves
+                }
+
+                // Check for head-to-head danger
+                for (const snake of gameState.board.snakes) {
+                    if (snake.id !== gameState.you.id) {
+                        const headToHeadDanger = this.checkHeadToHead(newPos, snake, gameState.you);
+                        if (headToHeadDanger) {
+                            console.log(`🚫 Avoiding head-to-head with snake ${snake.id}`);
+                            continue; // Skip this move
+                        }
+                    }
                 }
 
                 const moveCheck = this.checkAll(newPos, gameState);
@@ -210,13 +222,7 @@ const STRATEGIES = {
                 }
             }
 
-            // If no safe moves are found, stay in place
-            if (!bestMove) {
-                console.log("⚠️ No safe moves found. Staying in place.");
-                return 'stay'; // Indicate to stay in place
-            }
-
-            return bestMove; // Return the best safe move
+            return bestMove || 'stay'; // Stay in place if no safe moves
         }
     },
 
@@ -1062,11 +1068,14 @@ const STRATEGIES = {
     },
 
     calculateBestMove: function(gameState) {
-        console.log("\n🎯 Starting move calculation");
         const head = gameState.you.head;
         const moves = ['up', 'down', 'left', 'right'];
         let bestMove = null;
         let bestScore = -Infinity;
+
+        // Track enemy positions
+        const enemyPositions = this.trackEnemies(gameState);
+        const enemyPredictions = this.predictEnemyMoves(enemyPositions);
 
         for (const move of moves) {
             const newPos = this.getSafePosition(head, move, gameState.board);
@@ -1075,6 +1084,17 @@ const STRATEGIES = {
             if (this.assessRisk(newPos, gameState)) {
                 console.log(`🚫 Avoiding risky move: ${move}`);
                 continue; // Skip risky moves
+            }
+
+            // Check for potential collisions with predicted enemy moves
+            for (const id in enemyPredictions) {
+                const predictedMoves = enemyPredictions[id];
+                for (const enemyMove of predictedMoves) {
+                    if (newPos.x === enemyMove.x && newPos.y === enemyMove.y) {
+                        console.log(`🚫 Avoiding collision with predicted move of enemy ${id}`);
+                        continue; // Skip this move
+                    }
+                }
             }
 
             const moveCheck = this.checkAll(newPos, gameState);
@@ -1087,13 +1107,7 @@ const STRATEGIES = {
             }
         }
 
-        // If no safe moves are found, stay in place
-        if (!bestMove) {
-            console.log("⚠️ No safe moves found. Staying in place.");
-            return 'stay'; // Indicate to stay in place
-        }
-
-        return bestMove; // Return the best safe move
+        return bestMove || 'stay'; // Stay in place if no safe moves
     },
 
     getNewPosition: function(start, move) {
@@ -1115,6 +1129,77 @@ const STRATEGIES = {
                 throw new Error(`Invalid move: ${move}`);
         }
         return newPos;
+    },
+
+    AVOID_BOXING: {
+        isBoxedIn: function(pos, gameState) {
+            const moves = ['up', 'down', 'left', 'right'];
+            let safeMoves = 0;
+
+            for (const move of moves) {
+                const newPos = this.getNewPosition(pos, move);
+                if (!this.isOutOfBounds(newPos, gameState.board) && 
+                    !this.checkSelfCollision(newPos, gameState.you) &&
+                    !this.checkEnemyCollision(newPos, gameState)) {
+                    safeMoves++;
+                }
+            }
+
+            return safeMoves < 2; // If less than 2 safe moves, it's likely boxed in
+        }
+    },
+
+    LOOK_AHEAD: {
+        evaluateFutureMoves: function(head, gameState) {
+            const futurePositions = [head];
+            let currentPos = head;
+
+            for (let i = 0; i < 3; i++) {
+                const bestMove = this.calculateBestMove(gameState); // Use existing best move logic
+                currentPos = this.getNewPosition(currentPos, bestMove);
+                futurePositions.push(currentPos);
+            }
+
+            return futurePositions;
+        }
+    },
+
+    ENEMY_TRACKING: {
+        trackEnemies: function(gameState) {
+            const enemyPositions = {};
+
+            for (const snake of gameState.board.snakes) {
+                if (snake.id !== gameState.you.id) {
+                    enemyPositions[snake.id] = {
+                        head: snake.head,
+                        body: snake.body,
+                        length: snake.length
+                    };
+                }
+            }
+
+            return enemyPositions; // Return an object containing enemy positions
+        }
+    },
+
+    ENEMY_PREDICTION: {
+        predictEnemyMoves: function(enemyPositions) {
+            const predictions = {};
+
+            for (const id in enemyPositions) {
+                const enemy = enemyPositions[id];
+                const possibleMoves = [
+                    {x: enemy.head.x + 1, y: enemy.head.y}, // right
+                    {x: enemy.head.x - 1, y: enemy.head.y}, // left
+                    {x: enemy.head.x, y: enemy.head.y + 1}, // down
+                    {x: enemy.head.x, y: enemy.head.y - 1}  // up
+                ];
+
+                predictions[id] = possibleMoves; // Store predicted moves for each enemy
+            }
+
+            return predictions; // Return an object containing predicted moves
+        }
     }
 };
 
