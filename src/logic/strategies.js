@@ -232,6 +232,19 @@ const STRATEGIES = {
                 }
             }
             return false; // No collision risk
+        },
+
+        assessHeadToHeadRisk: function(newPos, enemyPredictions) {
+            for (const id in enemyPredictions) {
+                const predictedMoves = enemyPredictions[id];
+                for (const enemyMove of predictedMoves) {
+                    if (newPos.x === enemyMove.x && newPos.y === enemyMove.y) {
+                        console.log(`🚫 Avoiding head-to-head collision with enemy ${id} at ${newPos.x}, ${newPos.y}`);
+                        return true; // Indicates a head-to-head risk
+                    }
+                }
+            }
+            return false; // No head-to-head risk
         }
     },
 
@@ -1096,7 +1109,7 @@ const STRATEGIES = {
             }
 
             // Assess collision risk with predicted enemy moves
-            if (this.assessCollisionRisk(newPos, enemyPredictions)) {
+            if (this.assessCollisionRisk(newPos, enemyPredictions) || this.assessHeadToHeadRisk(newPos, enemyPredictions)) {
                 continue; // Skip this move if it leads to a collision
             }
 
@@ -1235,7 +1248,6 @@ const STRATEGIES = {
 
             for (const snake of longerSnakes) {
                 const enemyHead = snake.head;
-                // Check positions adjacent to the enemy head
                 const adjacentPositions = [
                     {x: enemyHead.x + 1, y: enemyHead.y}, // right
                     {x: enemyHead.x - 1, y: enemyHead.y}, // left
