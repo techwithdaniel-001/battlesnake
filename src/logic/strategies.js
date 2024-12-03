@@ -1102,17 +1102,29 @@ const STRATEGIES = {
         for (const move of moves) {
             const newPos = this.getSafePosition(head, move, gameState.board);
             
-            // Assess risk of the new position
-            if (this.assessRisk(newPos, gameState)) {
+            // 1. Assess risk of the new position
+            if (this.assessRisk(newPos, gameState) || 
+                this.assessCollisionRisk(newPos, enemyPredictions) || 
+                this.assessHeadToHeadRisk(newPos, enemyPredictions)) {
                 console.log(`🚫 Avoiding risky move: ${move}`);
                 continue; // Skip risky moves
             }
 
-            // Assess collision risk with predicted enemy moves
-            if (this.assessCollisionRisk(newPos, enemyPredictions) || this.assessHeadToHeadRisk(newPos, enemyPredictions)) {
-                continue; // Skip this move if it leads to a collision
+            // 2. Use pathfinding to evaluate the safety of moving to the new position
+            const pathToFood = this.FOOD.findNearestFood(newPos, gameState);
+            if (pathToFood) {
+                const path = PATHFINDING.aStarPathfinding(newPos, pathToFood.food, gameState.board);
+                if (path.length > 0) {
+                    console.log(`🍎 Safe path found to food: ${pathToFood.food}`);
+                    const score = this.calculateTotalScore(newPos, gameState) + 100; // Bonus for safe food path
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMove = move;
+                    }
+                }
             }
 
+            // 3. Check if the move is safe and calculate its score
             const moveCheck = this.checkAll(newPos, gameState);
             if (moveCheck.safe) {
                 const score = this.calculateTotalScore(newPos, gameState);
@@ -1167,11 +1179,12 @@ const STRATEGIES = {
     },
 
     LOOK_AHEAD: {
+        // Evaluate future moves by simulating the next few moves
         evaluateFutureMoves: function(head, gameState) {
             const futurePositions = [head];
             let currentPos = head;
 
-            for (let i = 0; i < 3; i++) {
+            for (let i = 0; i < 3; i++) { // Look ahead 3 moves
                 const bestMove = this.calculateBestMove(gameState); // Use existing best move logic
                 currentPos = this.getNewPosition(currentPos, bestMove);
                 futurePositions.push(currentPos);
@@ -1180,6 +1193,7 @@ const STRATEGIES = {
             return futurePositions;
         },
 
+        // Assess the risk of the predicted future positions
         assessFutureRisk: function(futurePositions, gameState) {
             for (const pos of futurePositions) {
                 if (this.isBoxedIn(pos, gameState) || this.isNearLongerSnake(pos, gameState)) {
@@ -1188,6 +1202,54 @@ const STRATEGIES = {
                 }
             }
             return false; // No risky future positions
+        },
+
+        // Check if the snake is boxed in
+        isBoxedIn: function(pos, gameState) {
+            const moves = ['up', 'down', 'left', 'right'];
+            let safeMoves = 0;
+
+            for (const move of moves) {
+                const newPos = this.getNewPosition(pos, move);
+                if (!this.isOutOfBounds(newPos, gameState.board) && 
+                    !this.checkSelfCollision(newPos, gameState.you) &&
+                    !this.checkEnemyCollision(newPos, gameState)) {
+                    safeMoves++;
+                }
+            }
+
+            return safeMoves < 2; // If less than 2 safe moves, it's likely boxed in
+        },
+
+        // Check if the position is near a longer snake
+        isNearLongerSnake: function(pos, gameState) {
+            const longerSnakes = this.getLongerSnakes(gameState);
+            for (const snake of longerSnakes) {
+                const enemyHead = snake.head;
+                const adjacentPositions = [
+                    {x: enemyHead.x + 1, y: enemyHead.y}, // right
+                    {x: enemyHead.x - 1, y: enemyHead.y}, // left
+                    {x: enemyHead.x, y: enemyHead.y + 1}, // down
+                    {x: enemyHead.x, y: enemyHead.y - 1}  // up
+                ];
+
+                if (adjacentPositions.some(pos => pos.x === enemyHead.x && pos.y === enemyHead.y)) {
+                    console.log(`🚫 Avoiding move near longer snake head at ${enemyHead.x}, ${enemyHead.y}`);
+                    return true; // Indicates a risky position
+                }
+            }
+            return false; // No risk from longer snakes
+        },
+
+        // Get longer snakes compared to the current snake
+        getLongerSnakes: function(gameState) {
+            const longerSnakes = [];
+            for (const snake of gameState.board.snakes) {
+                if (snake.id !== gameState.you.id && snake.length > gameState.you.length) {
+                    longerSnakes.push(snake);
+                }
+            }
+            return longerSnakes; // Return an array of longer snakes
         }
     },
 
