@@ -992,7 +992,7 @@ const STRATEGIES = {
                 }
             }
             
-            console.log(`🏆 Best predicted move: ${bestMove} (Score: ${bestScore})`);
+            console.log(` Best predicted move: ${bestMove} (Score: ${bestScore})`);
             return { move: bestMove, score: bestScore };
         },
 
@@ -1102,7 +1102,7 @@ const STRATEGIES = {
         for (const move of moves) {
             const newPos = this.getSafePosition(head, move, gameState.board);
             
-            // 1. Assess risk of the new position
+            // Assess risk of the new position
             if (this.assessRisk(newPos, gameState) || 
                 this.assessCollisionRisk(newPos, enemyPredictions) || 
                 this.assessHeadToHeadRisk(newPos, enemyPredictions)) {
@@ -1110,12 +1110,21 @@ const STRATEGIES = {
                 continue; // Skip risky moves
             }
 
-            // 2. Use pathfinding to evaluate the safety of moving to the new position
+            // Check for food proximity
             const pathToFood = this.FOOD.findNearestFood(newPos, gameState);
             if (pathToFood) {
-                const path = PATHFINDING.aStarPathfinding(newPos, pathToFood.food, gameState.board);
+                // Check if the food is in front of a larger snake
+                const foodPosition = pathToFood.food;
+                const foodInDanger = this.isFoodInDanger(foodPosition, enemyPositions, gameState.you.length);
+                if (foodInDanger) {
+                    console.log(`🚫 Avoiding food at ${foodPosition.x}, ${foodPosition.y} due to larger snake nearby.`);
+                    continue; // Skip this move if food is in danger
+                }
+
+                // Use pathfinding to evaluate the safety of moving to the new position
+                const path = PATHFINDING.aStarPathfinding(newPos, foodPosition, gameState.board);
                 if (path.length > 0) {
-                    console.log(`🍎 Safe path found to food: ${pathToFood.food}`);
+                    console.log(`🍎 Safe path found to food: ${foodPosition}`);
                     const score = this.calculateTotalScore(newPos, gameState) + 100; // Bonus for safe food path
                     if (score > bestScore) {
                         bestScore = score;
@@ -1124,19 +1133,34 @@ const STRATEGIES = {
                 }
             }
 
-            // 3. Check if the move is safe and calculate its score
-            const moveCheck = this.checkAll(newPos, gameState);
-            if (moveCheck.safe) {
-                const score = this.calculateTotalScore(newPos, gameState);
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestMove = move;
-                }
+            // Update best move if the current score is higher
+            const score = this.calculateTotalScore(newPos, gameState);
+            if (score > bestScore) {
+                bestScore = score;
+                bestMove = move;
             }
         }
 
         console.log(`Best move determined: ${bestMove}`);
         return bestMove || 'stay'; // Stay in place if no safe moves
+    },
+
+    calculateMoveScore: function(pos, gameState) {
+        let score = this.calculateTotalScore(pos, gameState); // Base score from total score calculation
+
+        // Check for food proximity
+        const pathToFood = this.FOOD.findNearestFood(pos, gameState);
+        if (pathToFood) {
+            const path = PATHFINDING.aStarPathfinding(pos, pathToFood.food, gameState.board);
+            if (path.length > 0) {
+                score += 100; // Bonus for safe food path
+                console.log(`🍎 Safe path found to food: ${pathToFood.food}`);
+            }
+        }
+
+        // Additional scoring factors can be added here (e.g., space, territory control)
+        
+        return score; // Return the calculated score for the move
     },
 
     getNewPosition: function(start, move) {
@@ -1366,6 +1390,28 @@ const STRATEGIES = {
             }
             return false; // No risk from longer snakes
         }
+    },
+
+    isFoodInDanger: function(foodPosition, enemyPositions, ourLength) {
+        for (const enemy of enemyPositions) {
+            const enemyHead = enemy.head;
+            const enemyLength = enemy.length;
+
+            // Check if the food position is adjacent to the enemy head
+            const adjacentPositions = [
+                {x: enemyHead.x + 1, y: enemyHead.y}, // right
+                {x: enemyHead.x - 1, y: enemyHead.y}, // left
+                {x: enemyHead.x, y: enemyHead.y + 1}, // down
+                {x: enemyHead.x, y: enemyHead.y - 1}  // up
+            ];
+
+            // If the food is in an adjacent position and the enemy is longer, it's dangerous
+            if (adjacentPositions.some(pos => pos.x === foodPosition.x && pos.y === foodPosition.y) &&
+                enemyLength > ourLength) {
+                return true; // Food is in danger
+            }
+        }
+        return false; // Food is safe
     }
 };
 
