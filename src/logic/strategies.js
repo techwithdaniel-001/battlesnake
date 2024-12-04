@@ -1183,10 +1183,25 @@ const STRATEGIES = {
         evaluateFutureMoves: function(head, gameState) {
             const futurePositions = [head];
             let currentPos = head;
+            const enemySnakes = gameState.board.snakes.filter(snake => snake.id !== gameState.you.id);
+            const myLength = gameState.you.length;
 
             for (let i = 0; i < 3; i++) { // Look ahead 3 moves
                 const bestMove = this.calculateBestMove(gameState); // Use existing best move logic
                 currentPos = this.getNewPosition(currentPos, bestMove);
+                
+                // Check proximity to enemy heads
+                for (const enemy of enemySnakes) {
+                    const enemyHead = enemy.head;
+                    const distanceToHead = Math.abs(currentPos.x - enemyHead.x) + Math.abs(currentPos.y - enemyHead.y);
+
+                    // Check if we can approach the enemy head
+                    if (distanceToHead <= 2 && !this.canApproachHead(myLength, enemy.length, distanceToHead)) {
+                        console.log(`⚠️ Future position ${currentPos.x}, ${currentPos.y} is too close to smaller snake's head at ${enemyHead.x}, ${enemyHead.y}`);
+                        return futurePositions; // Return early if a risky position is found
+                    }
+                }
+
                 futurePositions.push(currentPos);
             }
 
@@ -1195,10 +1210,19 @@ const STRATEGIES = {
 
         // Assess the risk of the predicted future positions
         assessFutureRisk: function(futurePositions, gameState) {
+            const enemySnakes = gameState.board.snakes.filter(snake => snake.id !== gameState.you.id);
+            const myLength = gameState.you.length;
+
             for (const pos of futurePositions) {
-                if (this.isBoxedIn(pos, gameState) || this.isNearLongerSnake(pos, gameState)) {
-                    console.log(`⚠️ Future position ${pos.x}, ${pos.y} is risky.`);
-                    return true; // Indicates a risky future position
+                for (const enemy of enemySnakes) {
+                    const enemyHead = enemy.head;
+                    const distanceToHead = Math.abs(pos.x - enemyHead.x) + Math.abs(pos.y - enemyHead.y);
+
+                    // Check if we can approach the enemy head
+                    if (distanceToHead <= 2 && !this.canApproachHead(myLength, enemy.length, distanceToHead)) {
+                        console.log(`⚠️ Future position ${pos.x}, ${pos.y} is risky due to smaller snake's head at ${enemyHead.x}, ${enemyHead.y}`);
+                        return true; // Indicates a risky future position
+                    }
                 }
             }
             return false; // No risky future positions
