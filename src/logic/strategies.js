@@ -1099,21 +1099,32 @@ const STRATEGIES = {
         const enemyPositions = this.trackEnemies(gameState);
         const enemyPredictions = this.predictEnemyMoves(enemyPositions);
 
+        // Define a length threshold for prioritizing food
+        const lengthThreshold = 5; // Adjust this value as needed
+
+        // Check if the snake is shorter than the threshold
+        const isShortSnake = gameState.you.length < lengthThreshold;
+
         for (const move of moves) {
             const newPos = this.getSafePosition(head, move, gameState.board);
             
             // Assess risk of the new position
             if (this.assessRisk(newPos, gameState) || 
-                this.assessCollisionRisk(newPos, enemyPredictions) || 
-                this.assessHeadToHeadRisk(newPos, enemyPredictions)) {
+                this.assessCollisionRisk(newPos, enemyPredictions)) {
                 console.log(`🚫 Avoiding risky move: ${move}`);
                 continue; // Skip risky moves
+            }
+
+            // Check for head-to-head collision with larger snakes
+            const headToHeadRisk = this.checkHeadToHead(newPos, enemyPositions, gameState.you.length);
+            if (headToHeadRisk) {
+                console.log(`🚫 Avoiding move ${move} due to head-to-head risk.`);
+                continue; // Skip this move if it leads to a head-to-head collision
             }
 
             // Check for food proximity
             const pathToFood = this.FOOD.findNearestFood(newPos, gameState);
             if (pathToFood) {
-                // Check if the food is in front of a larger snake
                 const foodPosition = pathToFood.food;
                 const foodInDanger = this.isFoodInDanger(foodPosition, enemyPositions, gameState.you.length);
                 if (foodInDanger) {
@@ -1126,7 +1137,11 @@ const STRATEGIES = {
                 if (path.length > 0) {
                     console.log(`🍎 Safe path found to food: ${foodPosition}`);
                     const score = this.calculateTotalScore(newPos, gameState) + 100; // Bonus for safe food path
-                    if (score > bestScore) {
+                    if (isShortSnake) {
+                        // Prioritize food if the snake is short
+                        bestScore = score; // Override bestScore to prioritize food
+                        bestMove = move; // Choose this move
+                    } else if (score > bestScore) {
                         bestScore = score;
                         bestMove = move;
                     }
@@ -1135,7 +1150,7 @@ const STRATEGIES = {
 
             // Update best move if the current score is higher
             const score = this.calculateTotalScore(newPos, gameState);
-            if (score > bestScore) {
+            if (!isShortSnake && score > bestScore) {
                 bestScore = score;
                 bestMove = move;
             }
