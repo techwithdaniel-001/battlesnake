@@ -1099,11 +1099,11 @@ const STRATEGIES = {
         const enemyPositions = this.trackEnemies(gameState);
         const enemyPredictions = this.predictEnemyMoves(enemyPositions);
 
-        // Increase the length threshold for prioritizing food
-        const lengthThreshold = 8; // Adjusted value for higher priority on food collection
+        // Define a threshold for prioritizing food based on game turn
+        const earlyGameTurns = 20; // Adjust this value based on your strategy
 
-        // Check if the snake is shorter than the threshold
-        const isShortSnake = gameState.you.length < lengthThreshold;
+        // Check if the game is in the early stage
+        const isEarlyGame = gameState.turn < earlyGameTurns;
 
         for (const move of moves) {
             const newPos = this.getSafePosition(head, move, gameState.board);
@@ -1137,8 +1137,8 @@ const STRATEGIES = {
                 if (path.length > 0) {
                     console.log(`🍎 Safe path found to food: ${foodPosition}`);
                     const score = this.calculateTotalScore(newPos, gameState) + 100; // Bonus for safe food path
-                    if (isShortSnake) {
-                        // Prioritize food if the snake is short
+                    if (isEarlyGame) {
+                        // Prioritize food if the game is in the early stage
                         bestScore = score; // Override bestScore to prioritize food
                         bestMove = move; // Choose this move
                     } else if (score > bestScore) {
@@ -1150,7 +1150,7 @@ const STRATEGIES = {
 
             // Update best move if the current score is higher
             const score = this.calculateTotalScore(newPos, gameState);
-            if (!isShortSnake && score > bestScore) {
+            if (!isEarlyGame && score > bestScore) {
                 bestScore = score;
                 bestMove = move;
             }
