@@ -1099,8 +1099,8 @@ const STRATEGIES = {
         const enemyPositions = this.trackEnemies(gameState);
         const enemyPredictions = this.predictEnemyMoves(enemyPositions);
 
-        // Define a length threshold for prioritizing food
-        const lengthThreshold = 5; // Adjust this value as needed
+        // Increase the length threshold for prioritizing food
+        const lengthThreshold = 8; // Adjusted value for higher priority on food collection
 
         // Check if the snake is shorter than the threshold
         const isShortSnake = gameState.you.length < lengthThreshold;
